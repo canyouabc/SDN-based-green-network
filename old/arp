@@ -1,0 +1,68 @@
+# 這是廢棄的方法，僅供參考
+# 之所以廢棄，是因為這樣的作法，無法取得host的ipv4位址
+# 理由是因為，不知道host的IPv4位置，無法取得ARP回應
+
+    def _monitor(self):
+        while True:
+            for dp in self.datapaths.values():
+                self._request_stats(dp)
+            # ARP探測
+            for dpid, dp in self.datapaths.items():
+                # 為每個datapath建立ARP封包
+                arp_pkt = self._monitor_create_arp_packet()
+                
+                # 遍歷該datapath的所有端口
+                for port_no in dp.ports.keys():
+                    if port_no != ofproto_v1_3.OFPP_LOCAL:
+                        self._send_packet(dp, port_no, arp_pkt)
+                    print(f"Sent ARP request on switch")
+            
+            # 查看當前已知的host
+            self.host_list = get_host(self.topology_api_app, None)
+            print(f"\n當前發現的Host數量: {len(self.host_list)}")
+            for host in self.host_list:
+                print("=" * 50)
+                print(f"Host MAC: {host.mac}")
+                print(f"Host IPv4: {host.ipv4}")
+                print(f"Host IPv6: {host.ipv6}")
+                print(f"Connected Switch: {host.port.dpid}")
+                print(f"Connected Port: {host.port.port_no}")
+                print(f"Port name: {host.port.name}")
+                
+            hub.sleep(3)
+
+    def _monitor_create_arp_packet(self):
+        """建立ARP探測封包"""
+        pkt = packet.Packet()
+        pkt.add_protocol(ethernet.ethernet(
+            dst='ff:ff:ff:ff:ff:ff',  # broadcast
+            src='00:00:00:00:00:01',  # controller虛擬MAC
+            ethertype=ether_types.ETH_TYPE_ARP
+        ))
+        pkt.add_protocol(arp.arp(
+            opcode=arp.ARP_REQUEST,
+            src_mac='00:00:00:00:00:01',
+            src_ip='192.168.1.254',    # controller虛擬IP
+            dst_mac='00:00:00:00:00:00',
+            dst_ip='192.168.1.1'      # 探測目標IP
+        ))
+        return pkt
+
+    def _send_packet(self, datapath, port_no, pkt):
+        """發送封包到指定端口"""
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        
+        pkt.serialize()
+        data = pkt.data
+        
+        actions = [parser.OFPActionOutput(port=port_no)]
+        out = parser.OFPPacketOut(
+            datapath=datapath,
+            buffer_id=ofproto.OFP_NO_BUFFER,
+            in_port=ofproto.OFPP_CONTROLLER,
+            actions=actions,
+            data=data
+        )
+        datapath.send_msg(out)
+    
