@@ -23,6 +23,7 @@ from ryu.app.wsgi import ControllerBase
 from collections import defaultdict
 from ryu.lib import hub
 from operator import attrgetter
+import os
 import time
 import logging
 
@@ -46,7 +47,7 @@ ENABLE_BANDWIDTH_MEASUREMENT = True
 # 選項: '2014' (Routing_2014) 或 '2020' (Routing_DTM_2020)
 # 選項: 'auto_k_short'
 # 選項: 'dijkstra' (Routing_DTM_Dijkstra) — 同 2020 邏輯，不依賴 k_short.txt
-ROUTING_ALGORITHM = 'dijkstra'
+ROUTING_ALGORITHM = '2020'
 # ======================================================
 
 # ==================== PacketIn 封包處理演算法開關 =========
@@ -147,7 +148,13 @@ class ProjectController(app_manager.RyuApp):
         
         self.link_used_bw = defaultdict(float)
 
-        
+        # ==================== Active Flow 管理 ====================
+        # {(host_a, host_b): {'path': [dpid, ...], 'install_time': t}}
+        self.active_flows = {}
+        self.flow_history_count = 0   # 累計產生的流數（含 reroute）
+        self.flow_history_hops  = 0   # 累計 hop 數
+        # =========================================================
+
         #===將 controller 的 args 傳給各模組===
         
         # 第一層：沒有依賴其他模組的，先建
@@ -196,6 +203,61 @@ class ProjectController(app_manager.RyuApp):
             
 
     # =========================================
+    # Active Flow 管理
+    # =========================================
+    def add_active_flow(self, host_a, host_b, path):
+        self.active_flows[(host_a, host_b)] = {
+            'path': path,
+            'install_time': time.time()
+        }
+        self.flow_history_count += 1
+        self.flow_history_hops  += len(path) - 1
+        print(f"[ActiveFlow] 新增: {host_a} -> {host_b}, 路徑: {path}")
+
+    def remove_active_flow(self, host_a, host_b, path=None, hard_timeout=None):
+        entry = self.active_flows.get((host_a, host_b))
+        if entry is None:
+            return
+        if hard_timeout is not None:
+            if time.time() - entry['install_time'] < hard_timeout:
+                print(f"[ActiveFlow] 忽略舊 Flow Removed 事件: {host_a} -> {host_b}")
+                return
+        del self.active_flows[(host_a, host_b)]
+        print(f"[ActiveFlow] 移除: {host_a} -> {host_b}")
+
+    def get_active_flows(self):
+        return [(host_a, host_b, entry['path'])
+                for (host_a, host_b), entry in self.active_flows.items()]
+
+    def get_history_avg_hops(self):
+        """啟動後累計的平均 hop 數（含 reroute）"""
+        if self.flow_history_count == 0:
+            return 0.0
+        return self.flow_history_hops / self.flow_history_count
+
+    def get_avg_hops(self):
+        paths = [e['path'] for e in self.active_flows.values()]
+        if not paths:
+            return 0.0
+        return sum(len(p) - 1 for p in paths) / len(paths)
+
+    def get_switch_flow_count(self):
+        """每個 switch 被幾條活躍流量通過"""
+        count = {}
+        for entry in self.active_flows.values():
+            for dpid in entry['path']:
+                count[dpid] = count.get(dpid, 0) + 1
+        return count
+
+    def get_path_switch_load(self, host_a, host_b):
+        """指定路徑上，每個 switch 的總流量通過數（來自所有活躍流）"""
+        entry = self.active_flows.get((host_a, host_b))
+        if entry is None:
+            return None
+        switch_count = self.get_switch_flow_count()
+        return {dpid: switch_count.get(dpid, 0) for dpid in entry['path']}
+
+    # =========================================
     # 讀取能耗與 BW 設定檔
     # =========================================
     def load_switch_energy(self, filepath='data/switch_energy.txt'):
@@ -238,7 +300,7 @@ class ProjectController(app_manager.RyuApp):
 
     def calculate_energy_saving_from_flows(self):
 
-        active_flows = self.routing_module.get_active_flows()
+        active_flows = self.get_active_flows()
         
         # 從 active_flows 推導出 active_switches 和 active_links
         active_switches = set()
@@ -285,17 +347,34 @@ class ProjectController(app_manager.RyuApp):
                 #self.logger.debug('register datapath: %016x', datapath.id)
                 print('register datapath:', datapath.id)
                 self.datapaths[datapath.id] = datapath
+                self._install_arp_to_controller(datapath)
         elif ev.state == DEAD_DISPATCHER:
             if datapath.id in self.datapaths:
                 #self.logger.debug('unregister datapath: %016x', datapath.id)
                 print('unregister datapath:', datapath.id)
                 del self.datapaths[datapath.id]
+    def _install_arp_to_controller(self, datapath):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_ARP)
+        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+        mod = parser.OFPFlowMod(
+            datapath=datapath, priority=10,
+            match=match, instructions=inst
+        )
+        datapath.send_msg(mod)
+
     def _monitor(self):
         hub.sleep(10)
         while True:
-            self.update_host_mac_table() 
-            #for dp in self.datapaths.values():
-            #    self._request_stats(dp)            
+            self.update_host_mac_table()
+            if os.path.exists("stats_request.flag"):
+                avg_hops = self.get_history_avg_hops()
+                energy_logger.info(
+                    f"HISTORY avg_hops={avg_hops:.4f} total_flows={self.flow_history_count}"
+                )
+                os.remove("stats_request.flag")
             hub.sleep(10)
             
     def _monitor_DTM(self):
@@ -316,11 +395,12 @@ class ProjectController(app_manager.RyuApp):
                     if  status == 'LOW' or status == 'OVERLOAD':
                         # status == 'LOW' or
                         # 從 active_flows 中，尋找第一條經過 (dpid_a, dpid_b) 的流量
-                        for host_a, host_b, path in self.routing_module.get_active_flows():
+                        for host_a, host_b, path in self.get_active_flows():
                             # 檢查路徑中是否包含 (dpid_a, dpid_b) 這個 link
                             has_link = False
                             for i in range(len(path) - 1):
-                                if path[i] == dpid_a and path[i + 1] == dpid_b:
+                                a, b = path[i], path[i + 1]
+                                if (min(a, b), max(a, b)) == (dpid_a, dpid_b):
                                     has_link = True
                                     break
                             
@@ -328,22 +408,25 @@ class ProjectController(app_manager.RyuApp):
                                 continue
                             
                             # 尋找除了 current_path 外的更適合的路徑
-                            new_path = self.routing_module.k_short_path_status(host_a, host_b, retrans_path=path)
+                            new_path = self.routing_module.find_reroute_path(host_a, host_b, retrans_path=path)
                             
                             if new_path is None:
                                 continue
                             
                             if new_path and new_path != path:
-                                                             
+                                new_path_with_ports = self.build_path_with_ports(new_path, host_a, host_b)
+                                if new_path_with_ports is None:
+                                    print(f"[Reroute] 無法建立新路徑 port 資訊，跳過: {host_a} -> {host_b}")
+                                    continue
+
                                 old_path_with_ports = self.build_path_with_ports(path, host_a, host_b)
                                 self.remove_flows_for_path(old_path_with_ports, host_a, host_b)
-                                
-                                new_path_with_ports = self.build_path_with_ports(new_path, host_a, host_b)
-                                self.install_flows_for_path(new_path_with_ports, host_a, host_b, priority=2, idle_timeout=5)                             
-                                
-                                self.routing_module.remove_active_flow(host_a, host_b, path)
-                                self.routing_module.add_active_flow(host_a, host_b, new_path)
-                                #print(f"[Rebalance] {host_a} -> {host_b}: {path} -> {new_path}")
+                                self.install_flows_for_path(new_path_with_ports, host_a, host_b, priority=2, idle_timeout=5)
+
+                                self.remove_active_flow(host_a, host_b, path)
+                                self.add_active_flow(host_a, host_b, new_path)
+
+                                print(f"[Reroute] {status} link ({dpid_a}-{dpid_b}) → {host_a} -> {host_b}: {path} → {new_path}")
                                 rebalanced = True
                                 break
             except Exception as e:
@@ -515,7 +598,7 @@ class ProjectController(app_manager.RyuApp):
     def build_path_with_ports(self, switch_path, src_mac, dst_mac):
         """將 switch_path (dpid序列) 轉換成帶有 port 資訊的 path"""
         path = []
-        
+
         if len(switch_path) == 1:
             first_sw = switch_path[0]
             host_in_port = self.host_macs[src_mac][1]
@@ -526,21 +609,27 @@ class ProjectController(app_manager.RyuApp):
             first_sw = switch_path[0]
             host_in_port = self.host_macs[src_mac][1]
             out_port = self.adjacency[first_sw][switch_path[1]]
+            if out_port is None:
+                return None
             path.append((first_sw, host_in_port, out_port))
-            
+
             # 中間的 switch
             for i in range(1, len(switch_path) - 1):
                 sw_dpid = switch_path[i]
                 in_port = self.adjacency[sw_dpid][switch_path[i-1]]
                 out_port = self.adjacency[sw_dpid][switch_path[i+1]]
+                if in_port is None or out_port is None:
+                    return None
                 path.append((sw_dpid, in_port, out_port))
-            
+
             # 最後一個 switch
             last_sw = switch_path[-1]
             in_port = self.adjacency[last_sw][switch_path[-2]]
+            if in_port is None:
+                return None
             host_out_port = self.host_macs[dst_mac][1]
             path.append((last_sw, in_port, host_out_port))
-        
+
         return path
         
     @set_ev_cls(ofp_event.EventOFPEchoReply, MAIN_DISPATCHER)
@@ -661,7 +750,14 @@ class ProjectController(app_manager.RyuApp):
     def _handle_arp_request(self, datapath, in_port, arp_pkt):
         """Controller直接回應ARP請求"""
         self.host_list = get_host(self.topology_api_app, None)
-        
+
+        _pair = (arp_pkt.src_mac, arp_pkt.dst_mac)
+        _count = getattr(self, 'pkt_in_pair_counter', {}).get(_pair, 0)
+        if _count > 100:
+            _known_ips = {ip: h.mac for h in self.host_list for ip in h.ipv4}
+            print(f"[ARP DEBUG] src={arp_pkt.src_ip} dst={arp_pkt.dst_ip} "
+                  f"pair_count={_count} get_host_ips={list(_known_ips.keys())}")
+
         for host in self.host_list:
             if arp_pkt.dst_ip in host.ipv4:
                 self._send_arp_reply(
@@ -794,7 +890,7 @@ class ProjectController(app_manager.RyuApp):
                 # 從 host_macs 和 switch_to_host 轉換 MAC 為 host 編號
 
                 if src_mac and dst_mac:
-                    switch_path = self.routing_module.select_path_for_new_flow(src_mac, dst_mac)
+                    switch_path = self.routing_module.find_path_for_new_flow(src_mac, dst_mac)
 
                     if switch_path and len(switch_path) >= 1:
                         path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
@@ -836,7 +932,9 @@ class ProjectController(app_manager.RyuApp):
         self.udp_pkt_counter[pair] = count + 1
 
         if count % self.UDP_THROTTLE_N != 0:
-            return  # 不是第 0, 20, 40... 次，直接跳過
+            if count <= 5 or count % 200 == 0:
+                print(f"[UDP THROTTLE] pair={pair} count={count} N={self.UDP_THROTTLE_N}")
+            return
 
         # === 以下才是真正的處理邏輯 ===
         print(f"[UNKNOWN_UDP] switch {datapath.id}, pair {pair}, count {count}")
@@ -885,7 +983,7 @@ class ProjectController(app_manager.RyuApp):
                 
                 if src_mac and dst_mac:
                     # 呼叫 DTM 模組選擇路徑
-                    switch_path = self.routing_module.select_path_for_new_flow(src_mac, dst_mac)
+                    switch_path = self.routing_module.find_path_for_new_flow(src_mac, dst_mac)
                     
                     if switch_path and len(switch_path) >= 1:
                             path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
@@ -901,7 +999,9 @@ class ProjectController(app_manager.RyuApp):
                     print(f"[{ROUTING_ALGORITHM} Routing UDP] 無法轉換 MAC: {src_mac} -> {dst_mac}")
 
             except Exception as e:
-                self.logger.error(f"[{ROUTING_ALGORITHM} Routing UDP] 路由計算失敗: {e}")
+                import traceback
+                print(f"[{ROUTING_ALGORITHM} Routing UDP] 路由計算失敗: {e}")
+                traceback.print_exc()
         else:
             self._apply_packet_algorithm(PACKET_ALGORITHM_UDP, datapath, pkt_data, 'UDP')
         
@@ -941,20 +1041,24 @@ class ProjectController(app_manager.RyuApp):
     def flow_removed_handler(self, ev):
         if ROUTING_ALGORITHM not in ('2020', 'dijkstra'):
             return
-        
+
         msg = ev.msg
         dp = msg.datapath
         ofp = dp.ofproto
-        
+
+        if msg.priority != 2:
+            return
+
         match = msg.match
         src_mac = match.get('eth_src')
-        dst_mac = match.get('eth_dst')        
+        dst_mac = match.get('eth_dst')
+
         if msg.reason == ofp.OFPRR_HARD_TIMEOUT:
             if src_mac and dst_mac:
-                self.routing_module.remove_active_flow(src_mac, dst_mac, hard_timeout=msg.hard_timeout)
+                self.remove_active_flow(src_mac, dst_mac, hard_timeout=msg.hard_timeout)
         elif msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
             if src_mac and dst_mac:
-                self.routing_module.remove_active_flow(src_mac, dst_mac, hard_timeout=msg.idle_timeout)
+                self.remove_active_flow(src_mac, dst_mac)
                     
 		 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -980,6 +1084,37 @@ class ProjectController(app_manager.RyuApp):
       in_port = msg.match['in_port']
       pkt = packet.Packet(msg.data)
       eth = pkt.get_protocol(ethernet.ethernet)
+
+      if eth:
+          _pair = (eth.src, eth.dst)
+          self.pkt_in_pair_counter = getattr(self, 'pkt_in_pair_counter', {})
+          self.pkt_in_pair_counter[_pair] = self.pkt_in_pair_counter.get(_pair, 0) + 1
+
+          if self.pkt_in_pair_counter[_pair] % 100 == 0:
+              _now = time.time()
+              _rev = (_pair[1], _pair[0])
+
+              _udp_count = self.udp_pkt_counter.get(_pair, 0)
+              _tcp_count = self.tcp_pkt_counter.get(_pair, 0)
+              _udp_last  = self.udp_last_seen.get(_pair)
+              _udp_idle  = f"{_now - _udp_last:.2f}s" if _udp_last else "never"
+              _has_flow  = _pair in self.active_flows
+
+              _r_udp_count = self.udp_pkt_counter.get(_rev, 0)
+              _r_tcp_count = self.tcp_pkt_counter.get(_rev, 0)
+              _r_udp_last  = self.udp_last_seen.get(_rev)
+              _r_udp_idle  = f"{_now - _r_udp_last:.2f}s" if _r_udp_last else "never"
+              _r_has_flow  = _rev in self.active_flows
+
+              print(f"[PKT-IN PAIR]     {_pair[0]} -> {_pair[1]} "
+                    f"total={self.pkt_in_pair_counter[_pair]} "
+                    f"udp={_udp_count} tcp={_tcp_count} "
+                    f"udp_idle={_udp_idle} active_flow={_has_flow}")
+              print(f"[PKT-IN PAIR rev] {_rev[0]} -> {_rev[1]} "
+                    f"total={self.pkt_in_pair_counter.get(_rev, 0)} "
+                    f"udp={_r_udp_count} tcp={_r_tcp_count} "
+                    f"udp_idle={_r_udp_idle} active_flow={_r_has_flow}")
+
       # 處理 LLDP 封包
       #if eth.ethertype != 0x88CC:
           #print("test")

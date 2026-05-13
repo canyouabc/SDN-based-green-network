@@ -33,6 +33,18 @@ for n in [10, 15, 20]:
     ).reset_index(level=0)
     base[f"mean-{n}"] = trimmed.groupby("batch")["percent"].mean().round(2)
 
+if "history_avg_hops" in df.columns:
+    hop_summary = df.groupby("batch")["history_avg_hops"].first()
+    base["history_avg_hops"] = hop_summary
+else:
+    base["history_avg_hops"] = None
+
+if "total_flows" in df.columns:
+    flow_summary = df.groupby("batch")["total_flows"].first()
+    base["total_flows"] = flow_summary
+else:
+    base["total_flows"] = None
+
 print(base)
 base.to_csv("energy_saving_summary.csv")
 print("\n已儲存 energy_saving_summary.csv")

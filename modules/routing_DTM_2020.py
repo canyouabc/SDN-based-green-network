@@ -82,17 +82,17 @@ def 定期偵測 link 狀態:
 
 from ryu.lib import hub
 from .link_status import Link_Status
+from .routing_base import RoutingBase
 import random
 import time
 
-class Routing_DTM_2020:
+class Routing_DTM_2020(RoutingBase):
     def __init__(self, app):
         self.app = app
         self.link_status = app.link_status
         # 直接從 app 取得 link_status 模組的引用，避免重複初始化
         self.k_short_paths = {}
-        self.active_flows = {}
-        
+
         self.load_k_short_paths('data/k_short.txt')
     # ===== 模組初始化 =====
     # 啟動時讀取 k_short.txt
@@ -134,33 +134,7 @@ class Routing_DTM_2020:
 
 
 
-    def add_active_flow(self, host_a, host_b, path):
-        """新增流量"""
-        self.active_flows[(host_a, host_b)] = {
-            'path': path,
-            'install_time': time.time()
-        }
-        print(f"[2020 Routing] 新增流量: host {host_a} -> host {host_b}, 路徑: {path}")
-
-    def remove_active_flow(self, host_a, host_b, path=None, hard_timeout=None):
-        entry = self.active_flows.get((host_a, host_b))
-        if entry is None:
-            return
-        if hard_timeout is not None:
-            if time.time() - entry['install_time'] < hard_timeout:
-                print(f"[2020 Routing] 忽略舊 Flow Removed 事件: {host_a} -> {host_b}")
-                return
-        
-        del self.active_flows[(host_a, host_b)]
-        print(f"[2020 Routing] 移除流量: host {host_a} -> host {host_b}")
-
-
-    def get_active_flows(self):
-        return [(host_a, host_b, entry['path']) 
-                for (host_a, host_b), entry in self.active_flows.items()]
-
-
-    def k_short_path_status(self, host_a, host_b, remove_path=None, retrans_path=None):
+    def find_reroute_path(self, host_a, host_b, remove_path=None, retrans_path=None):
         """根據 link 狀態選擇最適合的 k-short 路徑"""
         
         all_link_status = self.link_status.get_all_link_status()
@@ -261,13 +235,13 @@ class Routing_DTM_2020:
 
     '''
 
-    def select_path_for_new_flow(self, host_a, host_b):
+    def find_path_for_new_flow(self, host_a, host_b):
         """當有新流量加入時呼叫"""
-        path = self.k_short_path_status(host_a, host_b)
+        path = self.find_reroute_path(host_a, host_b)
         
         if path:
             #print(f"[2020 Routing] 選擇路徑: {host_a} -> {host_b}, 路徑: {path}")
-            self.add_active_flow(host_a, host_b, path)
+            self.app.add_active_flow(host_a, host_b, path)
             return path
         else:
             #print(f"[2020 Routing] 沒有可用路徑: {host_a} -> {host_b}")

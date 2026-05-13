@@ -1,4 +1,4 @@
-# watchdog.py
+# watchdog_campus.py — 校園網路拓撲版本
 import subprocess
 import time
 import random
@@ -8,7 +8,7 @@ import os
 RYU_SESSION = "ryu"
 MN_SESSION  = "mininet"
 
-HOSTS = [f"h{i}" for i in range(1, 17)]
+HOSTS = [f"h{i}" for i in range(1, 28)]
 EXPERIMENT_DURATION = 150  # seconds
 FLOW_DURATION = 15         # seconds
 LAMBDA = 1 / 3             # Poisson rate (期望間隔 3s)
@@ -16,7 +16,7 @@ IPERF_PORT = 5001
 
 def cleanup_mininet():
     subprocess.run(["sudo", "mn", "-c"], capture_output=True)
-    
+
 def cleanup_tmux():
     subprocess.run(["tmux", "kill-session", "-t", RYU_SESSION],
                    capture_output=True)
@@ -43,21 +43,6 @@ def wait_for_log(log_path, keyword, timeout=60):
     while time.time() - start < timeout:
         try:
             with open(log_path, 'r') as f:
-                if keyword in f.read():
-                    return True
-        except FileNotFoundError:
-            pass
-        time.sleep(0.5)
-    print(f"[watchdog] 警告：等待 '{keyword}' 逾時（{log_path}）")
-    return False
-
-def wait_for_log_from(log_path, keyword, start=0, timeout=60):
-    """只搜尋 start 位置之後的新內容"""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with open(log_path, 'r') as f:
-                f.seek(start)
                 if keyword in f.read():
                     return True
         except FileNotFoundError:
@@ -101,7 +86,7 @@ def launch_flow(src, dst, bw_mbps):
     tmux_send(MN_SESSION, cmd)
 
 def run_experiment():
-    """Poisson process 產生流量，持續 120 秒"""
+    """Poisson process 產生流量，持續 150 秒"""
     flow_count = 0
 
     # 第一條流立刻發，然後才開始計時
@@ -148,8 +133,6 @@ if __name__ == "__main__":
 
         with open(experiment_log, "a") as f:
             f.write(f"=== BATCH {batch_id} START {time.time():.3f} ===\n")
-        with open("experiment.log", "a") as f:
-            f.write(f"=== BATCH {batch_id} START ===\n")
 
         timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
         ryu_log = f"log/DTM-2026-{timestamp}.txt"
@@ -159,7 +142,7 @@ if __name__ == "__main__":
         new_tmux(RYU_SESSION, "ryu-manager DTM.py --observe-links", ryu_log)
 
         print("[watchdog] 啟動 Mininet...")
-        new_tmux(MN_SESSION, "sudo python grid_topo.py", mn_log)
+        new_tmux(MN_SESSION, "sudo python new_topo.py", mn_log)
 
         print("[watchdog] 等待 Mininet CLI 就緒...")
         wait_for_log(mn_log, "*** Starting CLI:", timeout=60)
@@ -177,20 +160,8 @@ if __name__ == "__main__":
         print(f"[watchdog] Batch {batch_id} 實驗開始（150s）...")
         run_experiment()
 
-        print(f"[watchdog] 等待控制器回傳歷史統計...")
-        _log_pos = os.path.getsize("experiment.log") if os.path.exists("experiment.log") else 0
-        open("stats_request.flag", "w").close()
-        if not wait_for_log_from("experiment.log", "HISTORY avg_hops=", start=_log_pos, timeout=30):
-            print("[watchdog] 警告：等待 HISTORY 統計逾時，跳過")
-            try:
-                os.remove("stats_request.flag")
-            except FileNotFoundError:
-                pass
-
         with open(experiment_log, "a") as f:
             f.write(f"=== BATCH {batch_id} END {time.time():.3f} ===\n")
-        with open("experiment.log", "a") as f:
-            f.write(f"=== BATCH {batch_id} END ===\n")
 
         print(f"=== BATCH {batch_id} END ===")
 

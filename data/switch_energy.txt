@@ -1,50 +1,26 @@
-# dpid  type          energy(W)
-# Core Layer (s1~s4)
-1       Core          146
-2       Core          146
-3       Core          146
-4       Core          146
-# Distribution Layer (s5~s18)
-5       Distribution  146
-6       Distribution  146
-7       Distribution  146
-8       Distribution  146
-9       Distribution  146
-10      Distribution  146
-11      Distribution  146
-12      Distribution  146
-13      Distribution  146
-14      Distribution  146
-15      Distribution  146
-16      Distribution  146
-17      Distribution  146
-18      Distribution  146
-# WAN Layer (s19~s24)
-19      WAN           146
-20      WAN           146
-21      WAN           146
-22      WAN           146
-23      WAN           146
-24      WAN           146
-# Access Layer (s25~s45)
-25      Access        146
-26      Access        146
-27      Access        146
-28      Access        146
-29      Access        146
-30      Access        146
-31      Access        146
-32      Access        146
-33      Access        146
-34      Access        146
-35      Access        146
-36      Access        146
-37      Access        146
-38      Access        146
-39      Access        146
-40      Access        146
-41      Access        146
-42      Access        146
-43      Access        146
-44      Access        146
-45      Access        146
+# dpid  type   energy(W)
+1       Grid   146
+2       Grid   146
+3       Grid   146
+4       Grid   146
+5       Grid   146
+6       Grid   146
+7       Grid   146
+8       Grid   146
+9       Grid   146
+10      Grid   146
+11      Grid   146
+12      Grid   146
+13      Grid   146
+14      Grid   146
+15      Grid   146
+16      Grid   146
+17      Grid   146
+18      Grid   146
+19      Grid   146
+20      Grid   146
+21      Grid   146
+22      Grid   146
+23      Grid   146
+24      Grid   146
+25      Grid   146
