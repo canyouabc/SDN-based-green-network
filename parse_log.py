@@ -24,28 +24,49 @@ def parse_log(log_path, csv_path):
                     "timestamp": m.group(1),
                     "saving_W": float(m.group(2)),
                     "percent": float(m.group(3)),
-                    "history_avg_hops": None,
-                    "total_flows": None,
+                    "history_avg_hops":  None,
+                    "total_flows":       None,
+                    "reroute_link":      None,
+                    "reroute_high_hop":  None,
+                    "reroute_low_share": None,
+                    "reroute_high_load": None,
                 })
                 continue
 
             # 偵測 HISTORY 行
-            m = re.match(r"\S+ \S+ HISTORY avg_hops=([\d.]+) total_flows=(\d+)", line)
+            m = re.match(
+                r"\S+ \S+ HISTORY avg_hops=([\d.]+) total_flows=(\d+)"
+                r"(?: reroute_link=(\d+) reroute_high_hop=(\d+) reroute_low_share=(\d+)"
+                r"(?: reroute_high_load=(\d+))?)?",
+                line
+            )
             if m and batch_id is not None:
                 history[batch_id] = {
-                    "avg_hops": float(m.group(1)),
-                    "total_flows": int(m.group(2)),
+                    "avg_hops":           float(m.group(1)),
+                    "total_flows":        int(m.group(2)),
+                    "reroute_link":       int(m.group(3)) if m.group(3) else None,
+                    "reroute_high_hop":   int(m.group(4)) if m.group(4) else None,
+                    "reroute_low_share":  int(m.group(5)) if m.group(5) else None,
+                    "reroute_high_load":  int(m.group(6)) if m.group(6) else None,
                 }
 
     # 回填 history 值到對應 batch 的 ENERGY 行
     for row in rows:
         h = history.get(row["batch"])
         if h:
-            row["history_avg_hops"] = h["avg_hops"]
-            row["total_flows"] = h["total_flows"]
+            row["history_avg_hops"]  = h["avg_hops"]
+            row["total_flows"]       = h["total_flows"]
+            row["reroute_link"]      = h["reroute_link"]
+            row["reroute_high_hop"]  = h["reroute_high_hop"]
+            row["reroute_low_share"] = h["reroute_low_share"]
+            row["reroute_high_load"] = h["reroute_high_load"]
 
     with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["batch", "timestamp", "saving_W", "percent", "history_avg_hops", "total_flows"])
+        writer = csv.DictWriter(f, fieldnames=[
+            "batch", "timestamp", "saving_W", "percent",
+            "history_avg_hops", "total_flows",
+            "reroute_link", "reroute_high_hop", "reroute_low_share", "reroute_high_load",
+        ])
         writer.writeheader()
         writer.writerows(rows)
 

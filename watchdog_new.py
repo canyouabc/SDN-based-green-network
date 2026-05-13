@@ -113,22 +113,14 @@ def run_experiment():
     start_time = time.time()  # 第一條流發出後才開始計時
 
     while True:
-        elapsed = time.time() - start_time
-        if elapsed >= EXPERIMENT_DURATION:
-            break
-
         interval = random.expovariate(LAMBDA)
-
-        remaining = EXPERIMENT_DURATION - (time.time() - start_time)
-        if interval > remaining:
-            time.sleep(remaining)
-            break
-
         time.sleep(interval)
+
+        if time.time() - start_time >= EXPERIMENT_DURATION:
+            break
 
         src, dst = random.sample(HOSTS, 2)
         bw_mbps = random.uniform(3, 50)
-
         flow_count += 1
         launch_flow(src, dst, bw_mbps)
 

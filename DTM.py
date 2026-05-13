@@ -47,8 +47,26 @@ ENABLE_BANDWIDTH_MEASUREMENT = True
 # 選項: '2014' (Routing_2014) 或 '2020' (Routing_DTM_2020)
 # 選項: 'auto_k_short'
 # 選項: 'dijkstra' (Routing_DTM_Dijkstra) — 同 2020 邏輯，不依賴 k_short.txt
-ROUTING_ALGORITHM = '2020'
+ROUTING_ALGORITHM = 'dijkstra'
 # ======================================================
+
+# ==================== Reroute 觸發條件設定 ====================
+REROUTE_TOP_N_HOP      = 3     # 取 hop 數最高的前 N 條
+REROUTE_HOP_THRESHOLD  = None  # None=不設閾值；否則填最小觸發 hop 數（含）
+
+REROUTE_TOP_N_SHARE    = 3     # 取自用比最高（ratio 最低）的前 N 條
+REROUTE_SHARE_THRESHOLD = None # None=不設閾值；否則填最大 ratio 上限（含）
+
+REROUTE_TOP_N_LOAD     = 3     # 取路徑負載分數最高的前 N 條
+REROUTE_LOAD_THRESHOLD = None  # None=不設閾值；否則填最小觸發分數（含）
+REROUTE_LOAD_WEIGHT = {        # 各 link 狀態的負載分數
+    'SN':      0,
+    'LOW':     0,
+    'NORMAL':  1,
+    'HIGH':    3,
+    'OVERLOAD': -999,          # OVERLOAD 已由 LINK 觸發處理，此觸發不選
+}
+# ============================================================
 
 # ==================== PacketIn 封包處理演算法開關 =========
 # TCP/UDP/ICMP/IPv4/IPv6 封包的處理策略
@@ -153,6 +171,10 @@ class ProjectController(app_manager.RyuApp):
         self.active_flows = {}
         self.flow_history_count = 0   # 累計產生的流數（含 reroute）
         self.flow_history_hops  = 0   # 累計 hop 數
+        self.reroute_count_link      = 0
+        self.reroute_count_high_hop  = 0
+        self.reroute_count_low_share = 0
+        self.reroute_count_high_load = 0
         # =========================================================
 
         #===將 controller 的 args 傳給各模組===
@@ -248,6 +270,71 @@ class ProjectController(app_manager.RyuApp):
             for dpid in entry['path']:
                 count[dpid] = count.get(dpid, 0) + 1
         return count
+
+    def _do_reroute(self, host_a, host_b, path, reason=""):
+        new_path = self.routing_module.find_reroute_path(host_a, host_b, retrans_path=path)
+        if new_path is None or new_path == path:
+            return False
+        new_pwp = self.build_path_with_ports(new_path, host_a, host_b)
+        if new_pwp is None:
+            print(f"[Reroute:{reason}] 無法建立新路徑 port 資訊，跳過: {host_a} -> {host_b}")
+            return False
+        old_pwp = self.build_path_with_ports(path, host_a, host_b)
+        self.remove_flows_for_path(old_pwp, host_a, host_b)
+        self.install_flows_for_path(new_pwp, host_a, host_b, priority=2, idle_timeout=5)
+        self.remove_active_flow(host_a, host_b, path)
+        self.add_active_flow(host_a, host_b, new_path)
+        print(f"[Reroute:{reason}] {host_a}->{host_b}: {path} → {new_path}")
+        if reason == "LINK":
+            self.reroute_count_link += 1
+        elif reason == "HIGH_HOP":
+            self.reroute_count_high_hop += 1
+        elif reason == "LOW_SHARE":
+            self.reroute_count_low_share += 1
+        elif reason == "HIGH_LOAD":
+            self.reroute_count_high_load += 1
+        return True
+
+    def _get_high_hop_flows(self, top_n=1, threshold=None):
+        flows = sorted(self.get_active_flows(), key=lambda x: len(x[2]) - 1, reverse=True)
+        if threshold is not None:
+            flows = [f for f in flows if len(f[2]) - 1 >= threshold]
+        return flows[:top_n]
+
+    def _get_low_share_flows(self, top_n=1, threshold=None):
+        switch_count = self.get_switch_flow_count()
+        def ratio(f):
+            path = f[2]
+            hops = len(path) - 1
+            if hops == 0:
+                return float('inf')
+            return sum(switch_count.get(d, 0) for d in path) / hops
+        flows = sorted(self.get_active_flows(), key=ratio)
+        if threshold is not None:
+            flows = [f for f in flows if ratio(f) <= threshold]
+        return flows[:top_n]
+
+    def _get_high_load_flows(self, top_n=1, threshold=None):
+        all_link_status = self.link_status.get_all_link_status()
+        scored = []
+        for f in self.get_active_flows():
+            path = f[2]
+            score = 0
+            skip = False
+            for i in range(len(path) - 1):
+                key = (min(path[i], path[i+1]), max(path[i], path[i+1]))
+                status = all_link_status.get(key, {}).get('status', 'NORMAL')
+                w = REROUTE_LOAD_WEIGHT.get(status, 1)
+                if w == -999:
+                    skip = True
+                    break
+                score += w
+            if not skip:
+                scored.append((score, f))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        if threshold is not None:
+            scored = [(s, f) for s, f in scored if s >= threshold]
+        return [f for _, f in scored[:top_n]]
 
     def get_path_switch_load(self, host_a, host_b):
         """指定路徑上，每個 switch 的總流量通過數（來自所有活躍流）"""
@@ -372,7 +459,11 @@ class ProjectController(app_manager.RyuApp):
             if os.path.exists("stats_request.flag"):
                 avg_hops = self.get_history_avg_hops()
                 energy_logger.info(
-                    f"HISTORY avg_hops={avg_hops:.4f} total_flows={self.flow_history_count}"
+                    f"HISTORY avg_hops={avg_hops:.4f} total_flows={self.flow_history_count} "
+                    f"reroute_link={self.reroute_count_link} "
+                    f"reroute_high_hop={self.reroute_count_high_hop} "
+                    f"reroute_low_share={self.reroute_count_low_share} "
+                    f"reroute_high_load={self.reroute_count_high_load}"
                 )
                 os.remove("stats_request.flag")
             hub.sleep(10)
@@ -382,55 +473,55 @@ class ProjectController(app_manager.RyuApp):
         hub.sleep(15) # 等待拓撲穩定
         while True:
             try:
-                all_link_status = self.link_status.get_all_link_status()
-                
-                # 在每個週期中，只轉移一條流量
                 rebalanced = False
-                
+
+                # ① LINK 觸發：LOW / OVERLOAD
+                all_link_status = self.link_status.get_all_link_status()
                 for (dpid_a, dpid_b), link_info in all_link_status.items():
                     if rebalanced:
                         break
-                    
                     status = link_info.get('status', 'NORMAL')
-                    if  status == 'LOW' or status == 'OVERLOAD':
-                        # status == 'LOW' or
-                        # 從 active_flows 中，尋找第一條經過 (dpid_a, dpid_b) 的流量
-                        for host_a, host_b, path in self.get_active_flows():
-                            # 檢查路徑中是否包含 (dpid_a, dpid_b) 這個 link
-                            has_link = False
-                            for i in range(len(path) - 1):
-                                a, b = path[i], path[i + 1]
-                                if (min(a, b), max(a, b)) == (dpid_a, dpid_b):
-                                    has_link = True
-                                    break
-                            
-                            if not has_link:
-                                continue
-                            
-                            # 尋找除了 current_path 外的更適合的路徑
-                            new_path = self.routing_module.find_reroute_path(host_a, host_b, retrans_path=path)
-                            
-                            if new_path is None:
-                                continue
-                            
-                            if new_path and new_path != path:
-                                new_path_with_ports = self.build_path_with_ports(new_path, host_a, host_b)
-                                if new_path_with_ports is None:
-                                    print(f"[Reroute] 無法建立新路徑 port 資訊，跳過: {host_a} -> {host_b}")
-                                    continue
+                    if status not in ('LOW', 'OVERLOAD'):
+                        continue
+                    for host_a, host_b, path in self.get_active_flows():
+                        has_link = any(
+                            (min(path[i], path[i+1]), max(path[i], path[i+1])) == (dpid_a, dpid_b)
+                            for i in range(len(path) - 1)
+                        )
+                        if not has_link:
+                            continue
+                        if self._do_reroute(host_a, host_b, path, reason="LINK"):
+                            rebalanced = True
+                            break
 
-                                old_path_with_ports = self.build_path_with_ports(path, host_a, host_b)
-                                self.remove_flows_for_path(old_path_with_ports, host_a, host_b)
-                                self.install_flows_for_path(new_path_with_ports, host_a, host_b, priority=2, idle_timeout=5)
+                # ② HIGH_HOP 觸發
+                if not rebalanced:
+                    for host_a, host_b, path in self._get_high_hop_flows(
+                            REROUTE_TOP_N_HOP, REROUTE_HOP_THRESHOLD):
+                        if self._do_reroute(host_a, host_b, path, reason="HIGH_HOP"):
+                            rebalanced = True
+                            break
 
-                                self.remove_active_flow(host_a, host_b, path)
-                                self.add_active_flow(host_a, host_b, new_path)
+                # ③ HIGH_LOAD 觸發
+                if not rebalanced:
+                    for host_a, host_b, path in self._get_high_load_flows(
+                            REROUTE_TOP_N_LOAD, REROUTE_LOAD_THRESHOLD):
+                        if self._do_reroute(host_a, host_b, path, reason="HIGH_LOAD"):
+                            rebalanced = True
+                            break
 
-                                print(f"[Reroute] {status} link ({dpid_a}-{dpid_b}) → {host_a} -> {host_b}: {path} → {new_path}")
-                                rebalanced = True
-                                break
+                # ④ LOW_SHARE 觸發
+                if not rebalanced:
+                    for host_a, host_b, path in self._get_low_share_flows(
+                            REROUTE_TOP_N_SHARE, REROUTE_SHARE_THRESHOLD):
+                        if self._do_reroute(host_a, host_b, path, reason="LOW_SHARE"):
+                            rebalanced = True
+                            break
+
             except Exception as e:
-                print(f"[monitor_link_status] 發生錯誤: {e}")
+                import traceback
+                print(f"[monitor_DTM] 發生錯誤: {e}")
+                traceback.print_exc()
             self.calculate_energy_saving_from_flows()
             hub.sleep(1)
     
