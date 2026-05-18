@@ -162,12 +162,12 @@ class Routing_DTM_2020(RoutingBase):
             has_overload = False
             
             for i in range(len(path) - 1):
-                link = (path[i], path[i + 1])
+                link = (min(path[i], path[i + 1]), max(path[i], path[i + 1]))
                 hop_counter += 1
-                
+
                 link_info = all_link_status.get(link, {})
-                status = link_info.get('status', 'NORMAL')
-                
+                status = link_info.get('status', 'SN')
+
                 if status == 'SN':
                     sn_counter += 1
                 elif status == 'OVERLOAD':
@@ -200,12 +200,12 @@ class Routing_DTM_2020(RoutingBase):
             sn_counter = 0
             
             for i in range(len(path) - 1):
-                link = (path[i], path[i + 1])
+                link = (min(path[i], path[i + 1]), max(path[i], path[i + 1]))
                 hop_counter += 1
-                
+
                 link_info = all_link_status.get(link, {})
-                status = link_info.get('status', 'NORMAL')
-                
+                status = link_info.get('status', 'SN')
+
                 if status == 'SN':
                     sn_counter += 1
             
@@ -251,35 +251,33 @@ class Routing_DTM_2020(RoutingBase):
     def load_k_short_paths(self, filepath='data/k_short.txt'):
         """
         讀取 k_short.txt 並加載到 k_short_paths 全局變數
-        格式：host_a  host_b  編號  cost  [switch路徑]  [switch路徑與port]
+        格式：每行可能包含多條路徑，每條路徑佔 5 個欄位：
+              host_a  host_b  編號  cost  [switch路徑]
         """
-        
         try:
             with open(filepath, 'r') as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith('#'):
                         continue
-                    
+
                     parts = line.split()
-                    host_a = parts[0]
-                    host_b = parts[1]
-                    # 編號 = int(parts[2])  # 不需要使用
-                    # cost = int(parts[3])  # 不需要使用
-                    
-                    # 解析 switch 路徑，格式：[25,5,26]
-                    path_str = parts[4]
-                    path_str = path_str.strip('[]')
-                    switch_path = [int(x) for x in path_str.split(',')]
-                    
-                    # 將路徑加入 k_short_paths
-                    if (host_a, host_b) not in self.k_short_paths:
-                        self.k_short_paths[(host_a, host_b)] = []
-                    
-                    self.k_short_paths[(host_a, host_b)].append(switch_path)
-            
+                    i = 0
+                    while i + 4 < len(parts):
+                        host_a = parts[i]
+                        host_b = parts[i + 1]
+                        # parts[i+2] = index, parts[i+3] = cost（不需要使用）
+                        path_str = parts[i + 4].strip('[]')
+                        switch_path = [int(x) for x in path_str.split(',')]
+
+                        if (host_a, host_b) not in self.k_short_paths:
+                            self.k_short_paths[(host_a, host_b)] = []
+                        self.k_short_paths[(host_a, host_b)].append(switch_path)
+
+                        i += 5
+
             print(f"[k_short] 成功加載 {len(self.k_short_paths)} 個 (host_a, host_b) 對的 k-shortest paths")
-            
+
         except FileNotFoundError:
             print(f"[k_short] 找不到檔案: {filepath}")
         except Exception as e:

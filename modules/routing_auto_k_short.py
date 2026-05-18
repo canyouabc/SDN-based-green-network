@@ -117,15 +117,19 @@ class Auto_routing_k_short:
                             del temp_adjacency[spur_src][next_node]
                         if next_node in temp_adjacency and spur_src in temp_adjacency[next_node]:
                             del temp_adjacency[next_node][spur_src]
-            
+
+            # 移除前綴節點（除 spur_src），防止 spur path 繞回前綴產生 loop
+            root_nodes = set(switch_path_1[:i])
+            temp_switches = [s for s in myswitches if s not in root_nodes]
+
             # ← 從前綴終點到目標計算 spur path
             spur_first_port = 0
             print(f"          計算 spur: {spur_src} → {dst_dpid}")
-            
+
             result = self.get_min_delay_path(
                 spur_src, dst_dpid, spur_first_port, final_port,
-                myswitches, temp_adjacency, temp_link_energy, link_bw,
-                link_used_bw, temp_switch_energy, 
+                temp_switches, temp_adjacency, temp_link_energy, link_bw,
+                link_used_bw, temp_switch_energy,
                 required_bw=required_bw
             )
             
@@ -234,14 +238,18 @@ class Auto_routing_k_short:
                                 del temp_adjacency[next_node][spur_src]
                             # 刪除反向邊（無向圖），確保 Dijkstra 無法雙向使用此邊
                 
+                # 移除前綴節點（除 spur_src），防止 spur path 繞回前綴產生 loop
+                root_nodes = set(candidate_switch_path[:i])
+                temp_switches = [s for s in myswitches if s not in root_nodes]
+
                 # ← 從前綴終點到目標計算 spur path
                 # 重要：不要綁定 spur_src 的入埠，允許它通過任何入埠到達
                 spur_first_port = 0
-                
+
                 result = self.get_min_delay_path(
                     spur_src, dst_dpid, spur_first_port, final_port,
-                    myswitches, temp_adjacency, temp_link_energy, link_bw,
-                    link_used_bw, temp_switch_energy, 
+                    temp_switches, temp_adjacency, temp_link_energy, link_bw,
+                    link_used_bw, temp_switch_energy,
                     required_bw=required_bw
                 )
                 
