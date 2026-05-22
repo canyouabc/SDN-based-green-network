@@ -224,7 +224,7 @@ class Routing_DTM_Dijkstra(RoutingBase):
     # 公開介面
     # =========================================================
 
-    def find_reroute_path(self, host_a, host_b, remove_path=None, retrans_path=None):
+    def select_path(self, host_a, host_b, remove_path=None, retrans_path=None):
         if host_a not in self.app.host_macs or host_b not in self.app.host_macs:
             print(f"[DTM-Dijk] host_macs 中找不到: {host_a} or {host_b}")
             return None
@@ -252,8 +252,8 @@ class Routing_DTM_Dijkstra(RoutingBase):
 
         return path
 
-    def find_path_for_new_flow(self, host_a, host_b):
-        path = self.find_reroute_path(host_a, host_b)
+    def admit_flow(self, host_a, host_b):
+        path = self.select_path(host_a, host_b)
         if path:
             self.app.add_active_flow(host_a, host_b, path)
             return path

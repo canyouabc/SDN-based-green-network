@@ -4,9 +4,13 @@ import time
 import random
 import threading
 import os
+import json
+import argparse
 
 RYU_SESSION = "ryu"
 MN_SESSION  = "mininet"
+
+GENERATE_ANIMATION = True  # 是否產出動畫 HTML
 
 HOSTS = [f"h{i}" for i in range(1, 17)]
 EXPERIMENT_DURATION = 150  # seconds
@@ -100,17 +104,28 @@ def launch_flow(src, dst, bw_mbps):
     print(f"[flow] {src} -> {dst} ({bw_mbps:.1f} Mbps)")
     tmux_send(MN_SESSION, cmd)
 
+def extract_activeflow_log(src_log, dst_log):
+    """從 ryu log 抽出 [ActiveFlow] 新增/移除 與 [WeightMap]，寫入 dst_log"""
+    keywords = ("[ActiveFlow] 新增", "[ActiveFlow] 移除", "[WeightMap]", "[NonShortest]",
+                "[FLOW_NEW]", "[FLOW_CASCADE_NS]", "[FLOW_CASCADE]")
+    try:
+        with open(src_log, 'r') as fin, open(dst_log, 'w') as fout:
+            for line in fin:
+                if any(k in line for k in keywords):
+                    fout.write(line)
+    except FileNotFoundError:
+        print(f"[watchdog] 找不到 {src_log}，略過 activeflow log 整理")
+
 def run_experiment():
-    """Poisson process 產生流量，持續 120 秒"""
+    """Poisson process 隨機產生流量"""
     flow_count = 0
 
-    # 第一條流立刻發，然後才開始計時
     src, dst = random.sample(HOSTS, 2)
     bw_mbps = random.uniform(3, 50)
     launch_flow(src, dst, bw_mbps)
     flow_count += 1
 
-    start_time = time.time()  # 第一條流發出後才開始計時
+    start_time = time.time()
 
     while True:
         interval = random.expovariate(LAMBDA)
@@ -126,12 +141,50 @@ def run_experiment():
 
     print(f"[watchdog] 實驗結束，共產生 {flow_count} 條流")
 
+def run_experiment_from_seed(flows):
+    """依照種子檔的流量腳本執行"""
+    if not flows:
+        return
+
+    first = flows[0]
+    launch_flow(first["src"], first["dst"], first["bw_mbps"])
+    start_time = time.time()
+
+    for flow in flows[1:]:
+        target = flow["interval"]
+        wait = target - (time.time() - start_time)
+        if wait > 0:
+            time.sleep(wait)
+        launch_flow(flow["src"], flow["dst"], flow["bw_mbps"])
+
+    remaining = EXPERIMENT_DURATION - (time.time() - start_time)
+    if remaining > 0:
+        time.sleep(remaining)
+
+    print(f"[watchdog] 實驗結束，共產生 {len(flows)} 條流")
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=str, default=None,
+                        help="種子檔路徑，例如 seed_42.json；不指定則隨機產生")
+    args = parser.parse_args()
+
+    seed_data = None
+    if args.seed:
+        with open(args.seed) as f:
+            seed_data = json.load(f)
+        batches_plan = seed_data["batches"]
+        print(f"[watchdog] 使用種子檔 {args.seed}，共 {len(batches_plan)} 批")
+    else:
+        batches_plan = [{"batch_id": i} for i in range(1, 6)]
+        print("[watchdog] 隨機模式，共 5 批")
+
     os.makedirs("log", exist_ok=True)
     run_timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
     experiment_log = f"log/experiment-{run_timestamp}.log"
 
-    for batch_id in range(1, 6):
+    for batch in batches_plan:
+        batch_id = batch["batch_id"]
         print(f"\n=== BATCH {batch_id} START ===")
 
         cleanup_tmux()
@@ -166,8 +219,14 @@ if __name__ == "__main__":
         start_iperf_servers()
         time.sleep(3)
 
+        print("[watchdog] 等待 Ryu link status 就緒...")
+        wait_for_log(ryu_log, "SN:", timeout=120)
+
         print(f"[watchdog] Batch {batch_id} 實驗開始（150s）...")
-        run_experiment()
+        if seed_data:
+            run_experiment_from_seed(batch["flows"])
+        else:
+            run_experiment()
 
         print(f"[watchdog] 等待控制器回傳歷史統計...")
         _log_pos = os.path.getsize("experiment.log") if os.path.exists("experiment.log") else 0
@@ -179,6 +238,10 @@ if __name__ == "__main__":
             except FileNotFoundError:
                 pass
 
+        activeflow_log = ryu_log.replace("DTM-", "activeflow-")
+        extract_activeflow_log(ryu_log, activeflow_log)
+        print(f"[watchdog] ActiveFlow log 已整理至 {activeflow_log}")
+
         with open(experiment_log, "a") as f:
             f.write(f"=== BATCH {batch_id} END {time.time():.3f} ===\n")
         with open("experiment.log", "a") as f:
@@ -186,8 +249,19 @@ if __name__ == "__main__":
 
         print(f"=== BATCH {batch_id} END ===")
 
-        # 關閉這批的 session
+        # 先關閉 session，再產出動畫，避免動畫阻塞期間延長 mininet 存活時間
         cleanup_tmux()
         time.sleep(3)
         cleanup_mininet()
         time.sleep(5)  # 等 mininet 完全釋放資源
+
+        if GENERATE_ANIMATION:
+            anim_path = activeflow_log.replace("activeflow-", "anim-").replace(".txt", ".html")
+            subprocess.Popen(
+                ["python3", "animate_activeflow.py", activeflow_log,
+                 "--save", anim_path, "--interval", "800"],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print(f"[watchdog] 動畫背景產出中 → {anim_path}")

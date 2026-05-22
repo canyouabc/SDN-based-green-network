@@ -47,18 +47,22 @@ ENABLE_BANDWIDTH_MEASUREMENT = True
 # 選項: '2014' (Routing_2014) 或 '2020' (Routing_DTM_2020)
 # 選項: 'auto_k_short'
 # 選項: 'dijkstra' (Routing_DTM_Dijkstra) — 同 2020 邏輯，不依賴 k_short.txt
-ROUTING_ALGORITHM = 'dijkstra'
+# 選項: 'self' (Routing_DTM_Self) — 2020 延伸，加入 active flow 重疊度排序
+ROUTING_ALGORITHM = 'self'
 # ======================================================
 
 # ==================== Reroute 觸發條件設定 ====================
-REROUTE_TOP_N_HOP      = 3     # 取 hop 數最高的前 N 條
-REROUTE_HOP_THRESHOLD  = None  # None=不設閾值；否則填最小觸發 hop 數（含）
+ENABLE_REROUTE_HIGH_HOP  = False
+REROUTE_TOP_N_HOP        = 3     # 取 hop 數最高的前 N 條
+REROUTE_HOP_THRESHOLD    = None  # None=不設閾值；否則填最小觸發 hop 數（含）
 
-REROUTE_TOP_N_SHARE    = 3     # 取自用比最高（ratio 最低）的前 N 條
-REROUTE_SHARE_THRESHOLD = None # None=不設閾值；否則填最大 ratio 上限（含）
+ENABLE_REROUTE_LOW_SHARE  = False
+REROUTE_TOP_N_SHARE       = 3     # 取自用比最高（ratio 最低）的前 N 條
+REROUTE_SHARE_THRESHOLD   = None  # None=不設閾值；否則填最大 ratio 上限（含）
 
-REROUTE_TOP_N_LOAD     = 3     # 取路徑負載分數最高的前 N 條
-REROUTE_LOAD_THRESHOLD = None  # None=不設閾值；否則填最小觸發分數（含）
+ENABLE_REROUTE_HIGH_LOAD  = False
+REROUTE_TOP_N_LOAD        = 3     # 取路徑負載分數最高的前 N 條
+REROUTE_LOAD_THRESHOLD    = None  # None=不設閾值；否則填最小觸發分數（含）
 REROUTE_LOAD_WEIGHT = {        # 各 link 狀態的負載分數
     'SN':      0,
     'LOW':     0,
@@ -97,6 +101,9 @@ if ENABLE_ROUTING:
     elif ROUTING_ALGORITHM == 'dijkstra':
         from modules.routing_DTM_dijkstra import Routing_DTM_Dijkstra as routing_module
         print("*** 使用 DTM-Dijkstra 演算法（即時狀態權重，不依賴 k_short.txt）")
+    elif ROUTING_ALGORITHM == 'self':
+        from modules.routing_DTM_self import Routing_DTM_Self as routing_module
+        print("*** 使用 DTM-Self 演算法（2020 延伸，active flow 重疊度排序）")
     else:
         print("*** ROUTING_ALGORITHM 變數設定錯誤，請檢查程式碼")
 
@@ -222,18 +229,21 @@ class ProjectController(app_manager.RyuApp):
             self.bandwidth_monitor_thread = hub.spawn(self._bandwidth_monitor)
         if ROUTING_ALGORITHM in ('2020', 'dijkstra'):
             self.dtm_monitor_thread = hub.spawn(self._monitor_DTM)
+        if ROUTING_ALGORITHM == 'self':
+            self.energy_monitor_thread = hub.spawn(self._monitor_energy)
             
 
     # =========================================
     # Active Flow 管理
     # =========================================
-    def add_active_flow(self, host_a, host_b, path):
+    def add_active_flow(self, host_a, host_b, path, is_reroute=False):
         self.active_flows[(host_a, host_b)] = {
             'path': path,
             'install_time': time.time()
         }
-        self.flow_history_count += 1
-        self.flow_history_hops  += len(path) - 1
+        if not is_reroute:
+            self.flow_history_count += 1
+            self.flow_history_hops  += len(path) - 1
         print(f"[ActiveFlow] 新增: {host_a} -> {host_b}, 路徑: {path}")
 
     def remove_active_flow(self, host_a, host_b, path=None, hard_timeout=None):
@@ -272,7 +282,7 @@ class ProjectController(app_manager.RyuApp):
         return count
 
     def _do_reroute(self, host_a, host_b, path, reason=""):
-        new_path = self.routing_module.find_reroute_path(host_a, host_b, retrans_path=path)
+        new_path = self.routing_module.select_path(host_a, host_b, retrans_path=path)
         if new_path is None or new_path == path:
             return False
         new_pwp = self.build_path_with_ports(new_path, host_a, host_b)
@@ -458,19 +468,24 @@ class ProjectController(app_manager.RyuApp):
             self.update_host_mac_table()
             if os.path.exists("stats_request.flag"):
                 avg_hops = self.get_history_avg_hops()
+                shortest_ratio = (
+                    self.routing_module.get_shortest_ratio()
+                    if hasattr(self.routing_module, 'get_shortest_ratio') else 0.0
+                )
                 energy_logger.info(
                     f"HISTORY avg_hops={avg_hops:.4f} total_flows={self.flow_history_count} "
                     f"reroute_link={self.reroute_count_link} "
                     f"reroute_high_hop={self.reroute_count_high_hop} "
                     f"reroute_low_share={self.reroute_count_low_share} "
-                    f"reroute_high_load={self.reroute_count_high_load}"
+                    f"reroute_high_load={self.reroute_count_high_load} "
+                    f"shortest_ratio={shortest_ratio:.4f}"
                 )
                 os.remove("stats_request.flag")
             hub.sleep(10)
             
     def _monitor_DTM(self):
         """定期偵測 link 狀態，每個週期只轉移一條流量"""
-        hub.sleep(15) # 等待拓撲穩定
+        hub.sleep(10) # 等待拓撲穩定
         while True:
             try:
                 rebalanced = False
@@ -495,7 +510,7 @@ class ProjectController(app_manager.RyuApp):
                             break
 
                 # ② HIGH_HOP 觸發
-                if not rebalanced:
+                if not rebalanced and ENABLE_REROUTE_HIGH_HOP:
                     for host_a, host_b, path in self._get_high_hop_flows(
                             REROUTE_TOP_N_HOP, REROUTE_HOP_THRESHOLD):
                         if self._do_reroute(host_a, host_b, path, reason="HIGH_HOP"):
@@ -503,7 +518,7 @@ class ProjectController(app_manager.RyuApp):
                             break
 
                 # ③ HIGH_LOAD 觸發
-                if not rebalanced:
+                if not rebalanced and ENABLE_REROUTE_HIGH_LOAD:
                     for host_a, host_b, path in self._get_high_load_flows(
                             REROUTE_TOP_N_LOAD, REROUTE_LOAD_THRESHOLD):
                         if self._do_reroute(host_a, host_b, path, reason="HIGH_LOAD"):
@@ -511,7 +526,7 @@ class ProjectController(app_manager.RyuApp):
                             break
 
                 # ④ LOW_SHARE 觸發
-                if not rebalanced:
+                if not rebalanced and ENABLE_REROUTE_LOW_SHARE:
                     for host_a, host_b, path in self._get_low_share_flows(
                             REROUTE_TOP_N_SHARE, REROUTE_SHARE_THRESHOLD):
                         if self._do_reroute(host_a, host_b, path, reason="LOW_SHARE"):
@@ -524,13 +539,20 @@ class ProjectController(app_manager.RyuApp):
                 traceback.print_exc()
             self.calculate_energy_saving_from_flows()
             hub.sleep(1)
-    
+
+    def _monitor_energy(self):
+        """self 演算法專用：只負責定期輸出能耗統計"""
+        hub.sleep(10)
+        while True:
+            self.calculate_energy_saving_from_flows()
+            hub.sleep(1)
+
     def _bandwidth_monitor(self):
         """
         頻寬監控線程（每秒1次）
         定期檢查各 link 的頻寬使用率
         """
-        hub.sleep(15) # 等待拓撲穩定
+        hub.sleep(10) # 等待拓撲穩定
         
         # ← 過濾背景流量的閾值（Mbps）
         BW_THRESHOLD_MBPS = 0.1
@@ -625,7 +647,7 @@ class ProjectController(app_manager.RyuApp):
         detector 是處理延遲偵測的執行緒
         定期掃描拓撲，將所有 link 對加入檢測隊列
         """
-        hub.sleep(16)  # 等待拓撲穩定    
+        hub.sleep(10)  # 等待拓撲穩定    
         while True:
             self.temp_adjacency = dict(self.adjacency)
             detection_queue = self.delay_detection.build_detection_queue(self.temp_adjacency)
@@ -640,8 +662,8 @@ class ProjectController(app_manager.RyuApp):
     '''
     def dynamic_Dijkstra_test(self):
         
-        # ← 等待 15 秒，確保拓撲和主機表完全建立
-        hub.sleep(15)
+        # ← 等待 10 秒，確保拓撲和主機表完全建立
+        hub.sleep(10)
         
         # ← 2014 版本是被動式（packet_in 觸發），不需要長期線程
         if ROUTING_ALGORITHM == '2014':
@@ -653,9 +675,9 @@ class ProjectController(app_manager.RyuApp):
             hub.sleep(5)  # 等待拓撲穩定
             print("\n*** 開始計算 K-Shortest Paths...")
             self.routing_module.compute_all_k_shortest_paths_once(
-                k=16,
+                k=500,
                 output_filepath='data/k_short.txt',
-                host_range=(46, 72)
+                host_range=(1, 16)
             )
             return
 
@@ -972,16 +994,17 @@ class ProjectController(app_manager.RyuApp):
                 )
             except Exception as e:
                 self.logger.error(f"[UNKNOWN_TCP] 路由計算失敗: {e}")
-        elif ROUTING_ALGORITHM in ('2020', 'dijkstra'):
+        elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self'):
             # 2020 / dijkstra 版本的路由計算邏輯
             try:
                 src_mac = eth.src
                 dst_mac = eth.dst
 
-                # 從 host_macs 和 switch_to_host 轉換 MAC 為 host 編號
+                if src_mac not in self.host_macs or dst_mac not in self.host_macs:
+                    return
 
                 if src_mac and dst_mac:
-                    switch_path = self.routing_module.find_path_for_new_flow(src_mac, dst_mac)
+                    switch_path = self.routing_module.admit_flow(src_mac, dst_mac)
 
                     if switch_path and len(switch_path) >= 1:
                         path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
@@ -1052,7 +1075,7 @@ class ProjectController(app_manager.RyuApp):
                 )
             except Exception as e:
                 self.logger.error(f"[UNKNOWN_UDP] 路由計算失敗: {e}")
-        elif ROUTING_ALGORITHM in ('2020', 'dijkstra'):
+        elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self'):
             # 2020 / dijkstra 版本的路由計算邏輯
             try:
 
@@ -1070,11 +1093,14 @@ class ProjectController(app_manager.RyuApp):
                 # 反向 DROP
                 
                 src_mac = eth.src
-                dst_mac = eth.dst            
-                
+                dst_mac = eth.dst
+
+                if src_mac not in self.host_macs or dst_mac not in self.host_macs:
+                    return
+
                 if src_mac and dst_mac:
                     # 呼叫 DTM 模組選擇路徑
-                    switch_path = self.routing_module.find_path_for_new_flow(src_mac, dst_mac)
+                    switch_path = self.routing_module.admit_flow(src_mac, dst_mac)
                     
                     if switch_path and len(switch_path) >= 1:
                             path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
@@ -1130,7 +1156,7 @@ class ProjectController(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
     def flow_removed_handler(self, ev):
-        if ROUTING_ALGORITHM not in ('2020', 'dijkstra'):
+        if ROUTING_ALGORITHM not in ('2020', 'dijkstra', 'self'):
             return
 
         msg = ev.msg
@@ -1146,10 +1172,16 @@ class ProjectController(app_manager.RyuApp):
 
         if msg.reason == ofp.OFPRR_HARD_TIMEOUT:
             if src_mac and dst_mac:
+                removed_path = (self.active_flows.get((src_mac, dst_mac)) or {}).get('path')
                 self.remove_active_flow(src_mac, dst_mac, hard_timeout=msg.hard_timeout)
+                if ROUTING_ALGORITHM == 'self' and removed_path and self.routing_module:
+                    self.routing_module.on_flow_removed(src_mac, dst_mac, removed_path)
         elif msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
             if src_mac and dst_mac:
+                removed_path = (self.active_flows.get((src_mac, dst_mac)) or {}).get('path')
                 self.remove_active_flow(src_mac, dst_mac)
+                if ROUTING_ALGORITHM == 'self' and removed_path and self.routing_module:
+                    self.routing_module.on_flow_removed(src_mac, dst_mac, removed_path)
                     
 		 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)

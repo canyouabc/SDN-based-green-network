@@ -134,7 +134,7 @@ class Routing_DTM_2020(RoutingBase):
 
 
 
-    def find_reroute_path(self, host_a, host_b, remove_path=None, retrans_path=None):
+    def select_path(self, host_a, host_b, remove_path=None, retrans_path=None):
         """根據 link 狀態選擇最適合的 k-short 路徑"""
         
         all_link_status = self.link_status.get_all_link_status()
@@ -155,12 +155,12 @@ class Routing_DTM_2020(RoutingBase):
         
         # 第一輪：不考慮 OVERLOAD link 的路徑
         valid_paths = []
-        
+
         for path in paths:
             hop_counter = 0
             sn_counter = 0
             has_overload = False
-            
+
             for i in range(len(path) - 1):
                 link = (min(path[i], path[i + 1]), max(path[i], path[i + 1]))
                 hop_counter += 1
@@ -173,32 +173,32 @@ class Routing_DTM_2020(RoutingBase):
                 elif status == 'OVERLOAD':
                     has_overload = True
                     break
-            
+
             if not has_overload:
                 valid_paths.append((sn_counter, hop_counter, path))
-            
-        
+
+
         # 如果有找到路徑，按 SN、Hop 排序後選擇
         if valid_paths:
             valid_paths.sort(key=lambda x: (x[0], x[1]))
             best_sn = valid_paths[0][0]
             best_hop = valid_paths[0][1]
-            
+
             # 找出所有 SN 和 Hop 都相同的路徑
             candidates = [p for p in valid_paths if p[0] == best_sn and p[1] == best_hop]
-            
+
             if retrans_path and any(p[2] == retrans_path for p in candidates):
                 return None  # 如果重傳路徑在候選中，則不選擇任何路徑
-            
+
             return random.choice(candidates)[2]
-        
+
         # 第二輪：考慮含有 OVERLOAD link 的路徑
         valid_paths_with_overload = []
-        
+
         for path in paths:
             hop_counter = 0
             sn_counter = 0
-            
+
             for i in range(len(path) - 1):
                 link = (min(path[i], path[i + 1]), max(path[i], path[i + 1]))
                 hop_counter += 1
@@ -208,18 +208,18 @@ class Routing_DTM_2020(RoutingBase):
 
                 if status == 'SN':
                     sn_counter += 1
-            
+
             valid_paths_with_overload.append((sn_counter, hop_counter, path))
-        
+
         if valid_paths_with_overload:
             valid_paths_with_overload.sort(key=lambda x: (x[0], x[1]))
             best_sn = valid_paths_with_overload[0][0]
             best_hop = valid_paths_with_overload[0][1]
-            
+
             candidates = [p for p in valid_paths_with_overload if p[0] == best_sn and p[1] == best_hop]
-            
+
             if retrans_path and any(p[2] == retrans_path for p in candidates):
-                return None  # 如果重傳路徑在候選中，則不選擇任何路徑        
+                return None  # 如果重傳路徑在候選中，則不選擇任何路徑
             return random.choice(candidates)[2]
         
         return None
@@ -235,9 +235,9 @@ class Routing_DTM_2020(RoutingBase):
 
     '''
 
-    def find_path_for_new_flow(self, host_a, host_b):
+    def admit_flow(self, host_a, host_b):
         """當有新流量加入時呼叫"""
-        path = self.find_reroute_path(host_a, host_b)
+        path = self.select_path(host_a, host_b)
         
         if path:
             #print(f"[2020 Routing] 選擇路徑: {host_a} -> {host_b}, 路徑: {path}")
