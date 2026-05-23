@@ -365,6 +365,8 @@ class Auto_routing_k_short:
         
         # 寫入檔案
         self._write_k_shortest_results(results, output_filepath)
+        dist_filepath = os.path.splitext(output_filepath)[0] + '_dist.txt'
+        self._write_k_short_dist(results, dist_filepath)
         
         print(f"\n{'='*70}")
         print(f"*** [K-SHORTEST] 完成！計算結果 {len(results)} 條路徑")
@@ -405,6 +407,46 @@ class Auto_routing_k_short:
                 f.write(f"{src:>20} {dst:>20} {idx} {cost:6.0f}  [{switch_str}]  "
 )
 
+    def _write_k_short_dist(self, results, filepath):
+        """
+        將每對 host 各 hop 群的 switch union 寫入檔案
+        格式：src_host dst_host  4[sw1,sw2,...]  5[sw1,sw2,...]  ...
+        hop 數 = 路徑上的 switch 數量
+        """
+        dirpath = os.path.dirname(filepath)
+        if dirpath and not os.path.exists(dirpath):
+            os.makedirs(dirpath)
+
+        # {(src, dst): {hop_count: set of switches}}
+        dist = {}
+        for result in results:
+            src  = result['src_host']
+            dst  = result['dst_host']
+            path = result['switch_path']
+            hop  = len(path)
+
+            key = (src, dst)
+            if key not in dist:
+                dist[key] = {}
+            if hop not in dist[key]:
+                dist[key][hop] = set()
+            dist[key][hop].update(path)
+
+        with open(filepath, 'w') as f:
+            f.write("# K-Shortest Paths Distribution\n")
+            f.write("# Format: src_host dst_host  hop[switches] ...\n")
+            f.write("# " + "="*66 + "\n\n")
+
+            for (src, dst), hop_groups in dist.items():
+                hop_parts = []
+                for hop in sorted(hop_groups):
+                    sw_str = ",".join(str(s) for s in sorted(hop_groups[hop]))
+                    hop_parts.append(f"{hop}[{sw_str}]")
+                array_str = "[" + ", ".join(hop_parts) + "]"
+                f.write(f"{src:>20} {dst:>20}  {array_str}\n")
+
+        print(f"[DTM-Self] dist 檔案寫入完成: {filepath}")
+
     def get_min_delay_path(self, src, dst, first_port, final_port,
                         switches, adjacency, link_energy, link_bw, 
                         link_used_bw, switch_energy, 
@@ -429,6 +471,9 @@ class Auto_routing_k_short:
                 continue
             for p in adjacency[u]:
                 if adjacency[u][p] is not None:
+
+                    if p not in min_loss:
+                        continue  # 已被排除的 root node，跳過
 
                     # ← 檢查剩餘頻寬是否足夠
                     if required_bw > 0:

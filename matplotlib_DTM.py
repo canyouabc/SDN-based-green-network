@@ -38,6 +38,7 @@ col_map = {
     "reroute_high_hop":  "re_high_hop",
     "reroute_low_share": "re_low_share",
     "reroute_high_load": "re_high_load",
+    "shortest_ratio":    "shortest_ratio",
 }
 for src, dst in col_map.items():
     if src in df.columns:
