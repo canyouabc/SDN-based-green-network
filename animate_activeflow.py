@@ -38,25 +38,27 @@ def get_path_edges(path):
 
 def parse_log(filepath):
     """解析 activeflow log。
-    回傳 (all_events, weight_snapshots)
+    回傳 (all_events, snapshots)
     all_events: list of (kind, src, dst, path, extra)
-      kind: 'flow_add' | 'flow_rem' | 'ns_add' | 'ns_rem'
-      extra: hop (ns_add 時), 否則 None
+      kind: 'flow_add' | 'flow_rem'
+      extra: trigger tag (flow_add 時) 或 None
+    snapshots: {event_index: {'active': [...], 'ns': [...], 'wmap': {...}}}
+      每個 [SNAPSHOT] 行直接對應前一個 display 事件，動畫不需自行推算狀態。
     """
+    import json
+
     all_events = []
-    weight_snapshots = {}
+    snapshots  = {}
 
     add_re      = re.compile(r'\[ActiveFlow\] 新增: (.+?) -> (.+?), 路徑: \[(.+?)\]')
     rem_re      = re.compile(r'\[ActiveFlow\] 移除: (.+?) -> (.+)')
-    wmap_re     = re.compile(r'\[WeightMap\] (\{.+\})')
-    ns_add_re   = re.compile(r'\[NonShortest\] 新增: (.+?) -> (.+?), hop=(\d+), 路徑: \[(.+?)\]')
-    ns_rem_re   = re.compile(r'\[NonShortest\] 移除: (.+?) -> (.+)')
+    snapshot_re = re.compile(r'\[SNAPSHOT\] (.+)')
     trigger_re  = re.compile(r'\[(FLOW_NEW|FLOW_CASCADE_NS|FLOW_CASCADE)\]')
 
-    pending_idx     = None
     pending_trigger = None
+    last_event_idx  = None
 
-    with open(filepath) as f:
+    with open(filepath, encoding='utf-8', errors='replace') as f:
         for line in f:
             mt = trigger_re.search(line)
             if mt:
@@ -69,70 +71,42 @@ def parse_log(filepath):
                 dst  = m.group(2).strip()
                 path = [int(x) for x in m.group(3).split(',')]
                 all_events.append(('flow_add', src, dst, path, pending_trigger))
-                pending_trigger = None
-                pending_idx = len(all_events) - 1
+                pending_trigger  = None
+                last_event_idx   = len(all_events) - 1
                 continue
 
             m = rem_re.search(line)
             if m:
-                src = m.group(1).strip()
-                dst = m.group(2).strip()
-                all_events.append(('flow_rem', src, dst, None, None))
-                pending_idx = len(all_events) - 1
+                all_events.append(('flow_rem', m.group(1).strip(), m.group(2).strip(), None, None))
+                last_event_idx = len(all_events) - 1
                 continue
 
-            m = wmap_re.search(line)
-            if m:
-                last_wmap = {int(k): v for k, v in eval(m.group(1)).items()}
-                if pending_idx is not None:
-                    weight_snapshots[pending_idx] = last_wmap
-                    pending_idx = None
-                continue
+            m = snapshot_re.search(line)
+            if m and last_event_idx is not None:
+                snapshots[last_event_idx] = json.loads(m.group(1))
+                last_event_idx = None   # 已消費，等待下一個 display 事件
 
-            m = ns_add_re.search(line)
-            if m:
-                src  = m.group(1).strip()
-                dst  = m.group(2).strip()
-                hop  = int(m.group(3))
-                path = [int(x) for x in m.group(4).split(',')]
-                all_events.append(('ns_add', src, dst, path, hop))
-                continue
-
-            m = ns_rem_re.search(line)
-            if m:
-                src = m.group(1).strip()
-                dst = m.group(2).strip()
-                all_events.append(('ns_rem', src, dst, None, None))
-
-    return all_events, weight_snapshots
+    return all_events, snapshots
 
 
-def build_states(all_events, weight_snapshots):
-    active_flows = {}   # {(src,dst): path}
-    non_shortest = {}   # {(src,dst): hop}
-    states = []
-    last_wmap = {}
+def build_states(all_events, snapshots):
+    """每個 display 事件直接使用對應的 [SNAPSHOT] 資料，不累積推算。"""
+    states    = []
+    last_snap = {'active': [], 'ns': [], 'wmap': {}}
 
     for i, event in enumerate(all_events):
-        kind, src, dst, path, extra = event
+        if i in snapshots:
+            last_snap = snapshots[i]
 
-        if kind == 'flow_add':
-            active_flows[(src, dst)] = path
-        elif kind == 'flow_rem':
-            active_flows.pop((src, dst), None)
-            non_shortest.pop((src, dst), None)
-        elif kind == 'ns_add':
-            non_shortest[(src, dst)] = extra   # extra = hop
-        elif kind == 'ns_rem':
-            non_shortest.pop((src, dst), None)
-
-        last_wmap = weight_snapshots.get(i, last_wmap)
+        active_flows = {(e[0], e[1]): e[2] for e in last_snap.get('active', [])}
+        non_shortest = {(e[0], e[1]): e[2] for e in last_snap.get('ns', [])}
+        wmap         = {int(k): v for k, v in last_snap.get('wmap', {}).items()}
 
         states.append({
             'event':        event,
-            'weight_map':   dict(last_wmap),
-            'active_flows': dict(active_flows),
-            'non_shortest': dict(non_shortest),
+            'weight_map':   wmap,
+            'active_flows': active_flows,
+            'non_shortest': non_shortest,
         })
 
     return states
@@ -265,18 +239,17 @@ def update_text_panel(ax_text, active_flows, non_shortest):
 
 
 def run_animation(log_path, dist_path, interval_ms, save_path=None):
-    all_events, weight_snapshots = parse_log(log_path)
+    all_events, snapshots = parse_log(log_path)
     if not all_events:
         print("No events found")
         return
 
-    states = build_states(all_events, weight_snapshots)
+    states = build_states(all_events, snapshots)
 
-    # 判定是否為 self 模式（log 中有 [NonShortest] 事件）
-    is_self_mode = any(e[0] in ('ns_add', 'ns_rem') for e in all_events)
+    # 判定是否為 self 模式：log 中有 [SNAPSHOT] 行（routing_DTM_self 才會輸出）
+    is_self_mode = bool(snapshots)
 
-    # 只渲染 flow_add / flow_rem 幀（ns 事件更新 state 但不單獨成幀）
-    frame_states = [s for s in states if s['event'][0] in ('flow_add', 'flow_rem')]
+    frame_states = states   # all_events 已只含 flow_add / flow_rem
     if not frame_states:
         print("No ActiveFlow events found")
         return
@@ -387,5 +360,6 @@ if __name__ == '__main__':
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
         import matplotlib.animation as animation
+        matplotlib.rcParams['animation.embed_limit'] = 200  # MB，預設 20 MB 不夠
 
     run_animation(args.log, args.dist, args.interval, save_path=args.save)

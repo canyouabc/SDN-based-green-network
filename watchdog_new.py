@@ -105,8 +105,8 @@ def launch_flow(src, dst, bw_mbps):
     tmux_send(MN_SESSION, cmd)
 
 def extract_activeflow_log(src_log, dst_log):
-    """從 ryu log 抽出 [ActiveFlow] 新增/移除 與 [WeightMap]，寫入 dst_log"""
-    keywords = ("[ActiveFlow] 新增", "[ActiveFlow] 移除", "[WeightMap]", "[NonShortest]",
+    """從 ryu log 抽出 [ActiveFlow] 新增/移除 與 [SNAPSHOT]，寫入 dst_log"""
+    keywords = ("[ActiveFlow] 新增", "[ActiveFlow] 移除", "[SNAPSHOT]", "[NonShortest]",
                 "[FLOW_NEW]", "[FLOW_CASCADE_NS]", "[FLOW_CASCADE]")
     try:
         with open(src_log, 'r') as fin, open(dst_log, 'w') as fout:
@@ -257,11 +257,12 @@ if __name__ == "__main__":
 
         if GENERATE_ANIMATION:
             anim_path = activeflow_log.replace("activeflow-", "anim-").replace(".txt", ".html")
-            subprocess.Popen(
-                ["python3", "animate_activeflow.py", activeflow_log,
-                 "--save", anim_path, "--interval", "800"],
-                start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+            anim_log  = anim_path.replace(".html", ".log")
+            with open(anim_log, "w") as flog:
+                subprocess.Popen(
+                    ["python3", "animate_activeflow.py", activeflow_log,
+                     "--save", anim_path, "--interval", "800"],
+                    stdout=flog, stderr=flog,
+                    start_new_session=True,
+                )
             print(f"[watchdog] 動畫背景產出中 → {anim_path}")
