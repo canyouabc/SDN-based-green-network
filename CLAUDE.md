@@ -1,5 +1,20 @@
 # 專案說明（CLAUDE.md）
 
+## ⚠️ 開啟專案提示清單
+
+每次開啟此專案時，請確認以下事項：
+
+- [ ] **priority counter 暴力解**：`DTM.py` 的 `_get_next_flow_priority()` 採用只增不減策略，
+      根本解法應追蹤並主動刪除舊 flow 規則（目前靠 `idle_timeout=5` 自然過期）
+- [ ] **`[TOPO_READY]` 條件不嚴謹**：目前只靠「這輪沒有新 host」觸發，
+      可能在假 host（OVS 管理介面 MAC）學習完成後就誤發，
+      watchdog 端應比對 `[TOPO_READY] 共 27 個` 精確字串，或改為過濾結構化 MAC
+- [ ] **`cap_topo.py` 尚未驗證**：新版校園拓撲未實際跑過實驗，需確認連線正確
+- [ ] **切換拓撲時記得同步 `data/`**：`k_short.txt`、`k_short_dist.txt`、
+      `link_bw.txt`、`switch_energy.txt` 等檔案需對應正確拓撲版本
+
+---
+
 ## 專案目的
 
 節能路由實驗與論文實作。基於 Ryu SDN 控制器，在 Mininet 模擬環境中比較不同路由演算法的節能效果。

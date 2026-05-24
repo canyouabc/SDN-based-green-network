@@ -37,6 +37,16 @@ _fh = logging.FileHandler("experiment.log", mode="a")
 _fh.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d %(message)s",
                                     datefmt="%Y-%m-%d %H:%M:%S"))
 energy_logger.addHandler(_fh)
+
+import os as _os
+_os.makedirs("log", exist_ok=True)
+_bw_logger = logging.getLogger("bw")
+_bw_logger.setLevel(logging.INFO)
+_bw_logger.propagate = False
+_bw_fh = logging.FileHandler("log/bw.log", mode="w")
+_bw_fh.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d %(message)s",
+                                       datefmt="%H:%M:%S"))
+_bw_logger.addHandler(_bw_fh)
 # ==================== Feature Flags ======================
 ENABLE_DELAY_DETECTION = True
 ENABLE_ROUTING = True
@@ -289,23 +299,26 @@ class ProjectController(app_manager.RyuApp):
         return count
 
     def _get_next_flow_priority(self, src_mac, dst_mac):
-        """返回 (old_priority, new_priority)。
-        每次安裝新路徑自動 +1；超過 FLOW_PRIORITY_IDLE 秒未觸發，計數重置
-        （此時假設舊流已被 idle_timeout 清除，old_priority 回傳 None）。
+        """每次安裝新路徑就 +1，確保新規則優先度永遠高於舊規則，
+        使 OFPFC_ADD 能立即生效而不被舊規則蓋過。
+        舊規則靠 idle_timeout=5 自然過期，不主動刪除。
+
+        ⚠️  暴力解：priority 只增不減，上限 65534 後循環回 FLOW_BASE_PRIORITY。
+            若同一 pair 在短時間內大量重算（cascade 風暴），priority 會快速累積。
+            根本解法應為追蹤並主動刪除舊規則，但目前以簡化實作為優先。
         """
-        now = time.time()
         key = (src_mac, dst_mac)
         entry = self._flow_priority.get(key)
 
-        if entry is None or now - entry['last_time'] > FLOW_PRIORITY_IDLE:
-            old_priority = None           # 首次安裝，或舊流已 idle_timeout 過期
+        if entry is None:
             new_priority = FLOW_BASE_PRIORITY
         else:
-            old_priority = entry['priority']
-            new_priority = old_priority + 1
+            new_priority = entry['priority'] + 1
+            if new_priority > 65534:
+                new_priority = FLOW_BASE_PRIORITY   # 循環，極少發生
 
-        self._flow_priority[key] = {'priority': new_priority, 'last_time': now}
-        return old_priority, new_priority
+        self._flow_priority[key] = {'priority': new_priority, 'last_time': time.time()}
+        return new_priority
 
     def _do_reroute(self, host_a, host_b, path, reason=""):
         new_path = self.routing_module.select_path(host_a, host_b, retrans_path=path)
@@ -315,12 +328,9 @@ class ProjectController(app_manager.RyuApp):
         if new_pwp is None:
             print(f"[Reroute:{reason}] 無法建立新路徑 port 資訊，跳過: {host_a} -> {host_b}")
             return False
-        old_pwp = self.build_path_with_ports(path, host_a, host_b)
-        old_priority, new_priority = self._get_next_flow_priority(host_a, host_b)
-        # 先裝新路徑（優先度更高，立即生效），再刪舊路徑（優先度不同，不會誤刪）
+        new_priority = self._get_next_flow_priority(host_a, host_b)
         self.install_flows_for_path(new_pwp, host_a, host_b, priority=new_priority, idle_timeout=5)
-        if old_priority is not None:
-            self.remove_flows_for_path(old_pwp, host_a, host_b, priority=old_priority)
+        # 舊路徑不主動刪，等 idle_timeout=5 自然過期
         self.remove_active_flow(host_a, host_b, path)
         self.add_active_flow(host_a, host_b, new_path)
         print(f"[Reroute:{reason}] {host_a}->{host_b}: {path} → {new_path}")
@@ -452,14 +462,7 @@ class ProjectController(app_manager.RyuApp):
         saving  = total_energy - current_energy
         percent = saving / total_energy * 100
 
-        print("\n===== 能耗統計 =====")
-        #print(f"  Active Flows： {len(active_flows)} 條")
-        #print(f"  Active Switches：{sorted(active_switches)}")
-        print(f"  Switch 能耗：{used_sw_energy} W")
-        print(f"  Link 能耗：  {used_link_energy} W")
-        print(f"  完全總能耗： {total_energy} W")
-        print(f"  目前總能耗： {current_energy} W")
-        print(f"  節省能耗：   {saving} W ({percent:.1f}%)")
+        print(f"===== 能耗統計 ===== 節省能耗：{saving:.2f} W ({percent:.1f}%)")
         energy_logger.info(f"ENERGY saving={saving:.2f}W percent={percent:.1f}%")
         
         return saving, percent     
@@ -630,7 +633,7 @@ class ProjectController(app_manager.RyuApp):
                                 usage_percent_single = (throughput_bps / capacity_bps) * 100
                                 
                                 # ← 列印所有方向的日誌（PortStats 統計的）
-                                print(f"[BW] Link {dpid} -> {neighbor}: {throughput_gbps:.3f} Gbps / {capacity_gbps:.3f} Gbps ({usage_percent_single:.1f}%)")
+                                _bw_logger.info(f"[BW] Link {dpid} -> {neighbor}: {throughput_gbps:.3f} Gbps / {capacity_gbps:.3f} Gbps ({usage_percent_single:.1f}%)")
                                 
                                 # ← 累積到物理 link（用於雙向負載計算）
                                 phy_link = (min(dpid, neighbor), max(dpid, neighbor))
@@ -1048,7 +1051,7 @@ class ProjectController(app_manager.RyuApp):
                         path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
 
                         if path:
-                            _, _prio = self._get_next_flow_priority(src_mac, dst_mac)
+                            _prio = self._get_next_flow_priority(src_mac, dst_mac)
                             self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
                             print(f"[{ROUTING_ALGORITHM} Routing TCP] {src_mac} -> {dst_mac}: path {switch_path}")
                         else:
@@ -1145,7 +1148,7 @@ class ProjectController(app_manager.RyuApp):
                             path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
 
                             if path:
-                                _, _prio = self._get_next_flow_priority(src_mac, dst_mac)
+                                _prio = self._get_next_flow_priority(src_mac, dst_mac)
                                 self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
                                 print(f"[{ROUTING_ALGORITHM} Routing UDP] {src_mac} -> {dst_mac}: path {switch_path}")
                             else:

@@ -518,11 +518,9 @@ class Routing_DTM_Self(RoutingBase):
                     self._increment_weight(fa, fb, current_path)  # Layer 1 +1
                 continue
 
-            old_priority, new_priority = self.app._get_next_flow_priority(fa, fb)
-            # 先裝新路徑（優先度更高，立即生效），再刪舊路徑（優先度不同，不會誤刪）
+            new_priority = self.app._get_next_flow_priority(fa, fb)
             self.app.install_flows_for_path(new_pwp, fa, fb, priority=new_priority, idle_timeout=5)
-            if old_priority is not None:
-                self.app.remove_flows_for_path(old_pwp, fa, fb, priority=old_priority)
+            # 舊路徑不主動刪，等 idle_timeout=5 自然過期
             self.app.remove_active_flow(fa, fb)
             self._cascade_changed = True  # 有路徑變換，標記供第二道 pass 判斷
 
