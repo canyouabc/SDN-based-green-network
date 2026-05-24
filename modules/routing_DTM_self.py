@@ -5,6 +5,7 @@ import random
 from .routing_base import RoutingBase
 
 ENABLE_NEW_ALGO = True  # True：兩階段選路（2020過濾 → 權重圖選最佳）
+CASCADE_DEEP_LOG = 10   # cascade 遞迴超過此深度時印 log
 
 
 class Routing_DTM_Self(RoutingBase):
@@ -14,26 +15,28 @@ class Routing_DTM_Self(RoutingBase):
         self.link_status = app.link_status
         self.k_short_paths = {}    # {(host_a, host_b): [[dpid, ...], ...]}
         self.k_short_dist  = {}    # {(host_a, host_b): {hop: [sw, ...]}}
-        self.switch_weight_map = {}  # {dpid: int}，從 topo 延遲初始化
+        self.core_weight_map = {}    # {dpid: int} Layer 1 核心層：最短 hop flow 貢獻
         self.待檢查路徑 = set()      # {(host_a, host_b)}，防止同一 flow 重複進入 cascade
         self._cascade_depth = 0      # debug：cascade 巢狀深度計數器
         self._cascade_time_total = 0.0
         self._cascade_count = 0
+        self._ns_only_mode = False   # True 時 cascade 只處理 NS flow（第二道 pass）
+        self._cascade_changed = False  # 追蹤第一道 pass 是否有路徑變換
         self.非最短hop清單 = {}      # {(host_a, host_b): (best_hop, best_path)}，Phase1選出非全局最短hop的flow
-        self.ns_weight_map = {}      # {dpid: int}，非最短hop flow 以其最低hop群計算的第二層權重圖
+        self.ns_weight_map = {}      # {dpid: int} Layer 2 NS層：非最短 hop flow 貢獻
         self.base_weight_map = {}    # {dpid: int}，拓撲天生偏好，啟動時從 k_short_dist 計算，靜態不變
         self.load_k_short_paths('data/k_short.txt')
         self.load_k_short_dist('data/k_short_dist.txt')
         self._build_base_weight_map()
 
     # =========================================================
-    # switch_weight_map 延遲初始化
+    # core_weight_map 延遲初始化
     # =========================================================
 
     def _ensure_weight_map(self):
         for dpid in self.app.myswitches:
-            if dpid not in self.switch_weight_map:
-                self.switch_weight_map[dpid] = 0
+            if dpid not in self.core_weight_map:
+                self.core_weight_map[dpid] = 0
 
     def _build_base_weight_map(self, filepath='data/base_weight_map.txt'):
         """載入或計算拓撲天生偏好的基底權重圖。
@@ -81,23 +84,6 @@ class Routing_DTM_Self(RoutingBase):
         for sw in dist.get(global_min_hop, []):
             self.ns_weight_map[sw] = max(0, self.ns_weight_map.get(sw, 0) - 1)
 
-    def _increment_sw_weight_by_shortest(self, host_a, host_b):
-        """無論流量類型，對 global_min_hop switch 群的 switch_weight_map +1"""
-        dist = self.k_short_dist.get((host_a, host_b), {})
-        if not dist:
-            return
-        global_min_hop = min(dist.keys())
-        for sw in dist.get(global_min_hop, []):
-            self.switch_weight_map[sw] = self.switch_weight_map.get(sw, 0) + 1
-
-    def _decrement_sw_weight_by_shortest(self, host_a, host_b):
-        """無論流量類型，對 global_min_hop switch 群的 switch_weight_map -1"""
-        dist = self.k_short_dist.get((host_a, host_b), {})
-        if not dist:
-            return
-        global_min_hop = min(dist.keys())
-        for sw in dist.get(global_min_hop, []):
-            self.switch_weight_map[sw] = max(0, self.switch_weight_map.get(sw, 0) - 1)
 
     def _build_active_switches(self, exclude_pair=None):
         """從 active_flows 建立目前使用中的 switch 集合。
@@ -124,14 +110,14 @@ class Routing_DTM_Self(RoutingBase):
         dist_entry = self.k_short_dist.get((host_a, host_b), {})
         sw_set = dist_entry.get(hop, path)
         for sw in sw_set:
-            self.switch_weight_map[sw] = max(0, self.switch_weight_map.get(sw, 0) - 1)
+            self.core_weight_map[sw] = max(0, self.core_weight_map.get(sw, 0) - 1)
 
     def _log_snapshot(self):
         """目前完整狀態快照，供動畫直接讀取，不需自行推算。"""
         import json
         active = [[a, b, p] for a, b, p in self.app.get_active_flows()]
         ns     = [[a, b, h] for (a, b), (h, _) in self.非最短hop清單.items()]
-        wmap   = {str(k): v for k, v in self.switch_weight_map.items()}
+        wmap   = {str(k): v for k, v in self.core_weight_map.items()}
         print(f"[SNAPSHOT] {json.dumps({'active': active, 'ns': ns, 'wmap': wmap})}")
 
     def _increment_weight(self, host_a, host_b, path):
@@ -139,7 +125,7 @@ class Routing_DTM_Self(RoutingBase):
         dist_entry = self.k_short_dist.get((host_a, host_b), {})
         sw_set = dist_entry.get(hop, path)
         for sw in sw_set:
-            self.switch_weight_map[sw] = self.switch_weight_map.get(sw, 0) + 1
+            self.core_weight_map[sw] = self.core_weight_map.get(sw, 0) + 1
 
     # =========================================================
     # 核心選路
@@ -170,7 +156,7 @@ class Routing_DTM_Self(RoutingBase):
 
             # Step 0：暫時將此 hop 群的所有 switch 權重 +1
             for sw in switch_set:
-                self.switch_weight_map[sw] = self.switch_weight_map.get(sw, 0) + 1
+                self.core_weight_map[sw] = self.core_weight_map.get(sw, 0) + 1
 
             # Step 2：對此 hop 群的路徑評分，排除含 OVERLOAD 的路徑
             usable = []
@@ -185,7 +171,7 @@ class Routing_DTM_Self(RoutingBase):
                         break
                 if has_overload:
                     continue
-                weight = sum(self.switch_weight_map.get(sw, 0) for sw in path)
+                weight = sum(self.core_weight_map.get(sw, 0) for sw in path)
                 usable.append((weight, path))
 
             if usable:
@@ -199,14 +185,14 @@ class Routing_DTM_Self(RoutingBase):
 
             # Step 2-1：無可用路徑，扣回暫時 +1，試下一個 hop
             for sw in switch_set:
-                self.switch_weight_map[sw] -= 1
+                self.core_weight_map[sw] -= 1
 
         return None
 
     def _compute_path(self, host_a, host_b, remove_path=None, prefer_current=None):
         """兩階段選路：
         Phase 1（2020）：以最少 SN link 數、最短 hop 數排序，取最優候選集
-        Phase 2（新算法）：對候選集套用 switch_weight_map 評分，選最高者
+        Phase 2（新算法）：對候選集套用 core_weight_map 評分，選最高者
         """
         self._ensure_weight_map()
         all_link_status = self.link_status.get_all_link_status()
@@ -262,50 +248,63 @@ class Routing_DTM_Self(RoutingBase):
         global_min_hop = min(dist.keys())
 
         if best_hop > global_min_hop:
-            # 非最短 hop：同步 +1 switch_weight_map（統一計費），觸發 cascade
+            # NS 分支：Layer 2 唯讀評分，選後才 +1 Layer 2（不動 Layer 1）
             print(f"[CD][compute] {host_a}->{host_b} | NS分支 | best_hop={best_hop} global_min={global_min_hop} | prefer_current={prefer_current}")
-            self._increment_sw_weight_by_shortest(host_a, host_b)
 
             scored = sorted(
-                ((sum(self.switch_weight_map.get(sw, 0) for sw in p), p) for p in candidates),
+                ((sum(self.ns_weight_map.get(sw, 0) for sw in p), p) for p in candidates),
                 key=lambda x: -x[0]
             )
             best_weight = scored[0][0]
             tied = [p for w, p in scored if w == best_weight]
             print(f"[CD][compute] {host_a}->{host_b} | NS候選={[p for _,p in scored]} | best_weight={best_weight} | tied={tied}")
 
+            if len(tied) > 1:
+                scored0 = sorted(
+                    ((sum(self.base_weight_map.get(sw, 0) for sw in p), p) for p in tied),
+                    key=lambda x: -x[0]
+                )
+                tied = [p for w, p in scored0 if w == scored0[0][0]]
+
             if prefer_current and prefer_current in tied:
-                self._decrement_sw_weight_by_shortest(host_a, host_b)
                 print(f"[CD][compute] {host_a}->{host_b} | prefer_current命中→return None（不換路）")
-                return None  # 現有路徑仍是最佳群，不換
+                return None
 
             selected = random.choice(tied)
             self.非最短hop清單[(host_a, host_b)] = (best_hop, selected)
-            self._ns_increment(host_a, host_b)
+            self._ns_increment(host_a, host_b)  # Layer 2 +1（選後才更新）
             print(f"[NonShortest] 新增: {host_a} -> {host_b}, hop={best_hop}, 路徑: {selected}")
             print(f"[CD][compute] {host_a}->{host_b} | NS寫入清單完成 | 清單={dict(self.非最短hop清單)}")
             self._cascade(host_a, host_b, selected)
             return selected
 
-        # Phase 2：最短 hop，+1，觸發 cascade
-        switch_set = dist.get(len(candidates[0]), candidates[0])
-        for sw in switch_set:
-            self.switch_weight_map[sw] = self.switch_weight_map.get(sw, 0) + 1
-
+        # Phase 2：最短 hop，Layer 1 唯讀評分，平手再用 Layer 2 tiebreaker，選後才 +1 Layer 1
         scored = sorted(
-            ((sum(self.switch_weight_map.get(sw, 0) for sw in p), p) for p in candidates),
+            ((sum(self.core_weight_map.get(sw, 0) for sw in p), p) for p in candidates),
             key=lambda x: -x[0]
         )
         best_weight = scored[0][0]
         tied = [p for w, p in scored if w == best_weight]
 
+        if len(tied) > 1:
+            scored2 = sorted(
+                ((sum(self.ns_weight_map.get(sw, 0) for sw in p), p) for p in tied),
+                key=lambda x: -x[0]
+            )
+            tied = [p for w, p in scored2 if w == scored2[0][0]]
+
+        if len(tied) > 1:
+            scored0 = sorted(
+                ((sum(self.base_weight_map.get(sw, 0) for sw in p), p) for p in tied),
+                key=lambda x: -x[0]
+            )
+            tied = [p for w, p in scored0 if w == scored0[0][0]]
+
         if prefer_current and prefer_current in tied:
-            # 退回 +1，現有路徑仍是最佳群，不換
-            for sw in switch_set:
-                self.switch_weight_map[sw] -= 1
             return None
 
         selected = random.choice(tied)
+        self._increment_weight(host_a, host_b, selected)  # Layer 1 +1（選後才更新）
         self._cascade(host_a, host_b, selected)
         return selected
 
@@ -326,11 +325,10 @@ class Routing_DTM_Self(RoutingBase):
     def on_flow_removed(self, host_a, host_b, removed_path):
         """timeout 觸發的 flow 移除，以移除路徑的 hop 群做 cascade 檢查"""
         if (host_a, host_b) in self.非最短hop清單:
-            self._ns_decrement(host_a, host_b)
-            self._decrement_sw_weight_by_shortest(host_a, host_b)
+            self._ns_decrement(host_a, host_b)             # Layer 2 -1
             self.非最短hop清單.pop((host_a, host_b), None)
         else:
-            self._decrement_weight(host_a, host_b, removed_path)
+            self._decrement_weight(host_a, host_b, removed_path)  # Layer 1 -1
         self._log_snapshot()
         self.待檢查路徑.clear()
         self._cascade(host_a, host_b, removed_path)
@@ -372,7 +370,7 @@ class Routing_DTM_Self(RoutingBase):
             # 畫 switch 節點
             for sw in range(1, N * N + 1):
                 x, y = (sw-1) % N, N - 1 - (sw-1) // N
-                w = self.switch_weight_map.get(sw, 0)
+                w = self.core_weight_map.get(sw, 0)
                 ax.plot(x, y, 'o', color='#ffffcc', markersize=22,
                         markeredgecolor='#333333', lw=0.8)
                 ax.text(x, y + 0.08, str(sw), ha='center', va='center',
@@ -405,13 +403,24 @@ class Routing_DTM_Self(RoutingBase):
             print(f"[DEBUG] 畫圖失敗: {e}")
 
     def _cascade(self, host_a, host_b, selected_path):
-        """topo 有任何變動時，所有 active flow 皆重算；非最短hop清單 只用於區分權重操作方式"""
+        """兩道 pass 重算機制：
+        第一道：全部 flow 重算（NS 優先），遞迴，追蹤是否有路徑變換
+        第二道：若第一道有變換，只重算 NS flow，遞迴，讓 NS flow 反應新狀態
+        """
         import time
         is_outermost = self._cascade_depth == 0
         if is_outermost:
             _t0 = time.time()
+            if not self._ns_only_mode:
+                self._cascade_changed = False  # 第一道 pass 開始時重置
 
         self._cascade_depth += 1
+
+        if self._cascade_depth > CASCADE_DEEP_LOG:
+            print(f"[CASCADE_DEEP] depth={self._cascade_depth} "
+                  f"pass={'2nd-NS' if self._ns_only_mode else '1st'} "
+                  f"trigger={host_a}->{host_b}")
+
         if self._cascade_depth > 50:
             self._debug_draw_cascade(host_a, host_b, selected_path)
             self._cascade_depth -= 1
@@ -419,8 +428,9 @@ class Routing_DTM_Self(RoutingBase):
                 print(f"[CASCADE_TIME] {time.time() - _t0:.4f}s")
             return
 
-        # 收集需要重算的 flow（全部 flow 皆重算，is_ns 以非最短hop清單為準）
-        flows_to_check = []  # [(fa, fb, current_path, is_ns)]
+        # 收集需要重算的 flow：NS 優先；_ns_only_mode 時跳過最短 flow
+        ns_flows = []
+        shortest_flows = []
         for fa, fb, path in self.app.get_active_flows():
             if (fa, fb) in self.待檢查路徑:
                 print(f"[CD][collect] {fa}->{fb} 跳過（已在待檢查路徑）")
@@ -428,28 +438,31 @@ class Routing_DTM_Self(RoutingBase):
             if (fa, fb) in self.非最短hop清單:
                 _, ns_path = self.非最短hop清單[(fa, fb)]
                 print(f"[CD][collect] {fa}->{fb} path={ns_path} is_ns=True 加入重算")
-                flows_to_check.append((fa, fb, ns_path, True))
-            else:
+                ns_flows.append((fa, fb, ns_path, True))
+            elif not self._ns_only_mode:
                 print(f"[CD][collect] {fa}->{fb} path={path} is_ns=False 加入重算")
-                flows_to_check.append((fa, fb, path, False))
+                shortest_flows.append((fa, fb, path, False))
 
-        print(f"[CD][cascade] depth={self._cascade_depth} trigger={host_a}->{host_b} "
-              f"| 共{len(flows_to_check)}個flow待重算 | 清單={dict(self.非最短hop清單)}")
+        flows_to_check = ns_flows + shortest_flows
+
+        print(f"[CD][cascade] depth={self._cascade_depth} "
+              f"pass={'2nd-NS' if self._ns_only_mode else '1st'} "
+              f"trigger={host_a}->{host_b} | 共{len(flows_to_check)}個flow待重算 "
+              f"| 清單={dict(self.非最短hop清單)}")
 
         for fa, fb, _, _ in flows_to_check:
             self.待檢查路徑.add((fa, fb))
 
         for fa, fb, current_path, is_ns in flows_to_check:
             print(f"[CD][proc] ── 處理 {fa}->{fb} | current_path={current_path} is_ns={is_ns}")
-            # 1. 扒乾淨自己的權重貢獻（NS flow 先印移除，順序必須在 新增 之前）
+            # 1. 扒乾淨自己的權重貢獻（影響哪層就扒哪層）
             if is_ns:
-                self._ns_decrement(fa, fb)
-                self._decrement_sw_weight_by_shortest(fa, fb)
+                self._ns_decrement(fa, fb)         # Layer 2 -1
                 self.非最短hop清單.pop((fa, fb), None)
                 print(f"[NonShortest] 移除: {fa} -> {fb}")
                 print(f"[CD][proc] {fa}->{fb} | 扒乾淨NS權重完成 | 清單={dict(self.非最短hop清單)}")
             else:
-                self._decrement_weight(fa, fb, current_path)
+                self._decrement_weight(fa, fb, current_path)  # Layer 1 -1
                 print(f"[CD][proc] {fa}->{fb} | 扒乾淨一般權重完成")
 
             # 2. 當作新流量重算（prefer_current：若仍在最佳群就不換）
@@ -462,14 +475,13 @@ class Routing_DTM_Self(RoutingBase):
             if new_path is None:
                 print(f"[CD][proc] {fa}->{fb} | new_path=None→還原")
                 if is_ns:
-                    self._ns_increment(fa, fb)
-                    self._increment_sw_weight_by_shortest(fa, fb)
+                    self._ns_increment(fa, fb)     # Layer 2 +1
                     self.非最短hop清單[(fa, fb)] = (len(current_path), current_path)
                     print(f"[NonShortest] 新增: {fa} -> {fb}, "
                           f"hop={len(current_path)}, 路徑: {current_path}")
                     print(f"[CD][proc] {fa}->{fb} | 還原NS完成 | 清單={dict(self.非最短hop清單)}")
                 else:
-                    self._increment_weight(fa, fb, current_path)
+                    self._increment_weight(fa, fb, current_path)  # Layer 1 +1
                     print(f"[CD][proc] {fa}->{fb} | 還原一般權重完成")
                 continue
 
@@ -480,19 +492,19 @@ class Routing_DTM_Self(RoutingBase):
             if old_pwp is None or new_pwp is None:
                 print(f"[CD][proc] {fa}->{fb} | pwp失敗→還原")
                 if is_ns:
-                    self._ns_increment(fa, fb)
-                    self._increment_sw_weight_by_shortest(fa, fb)
+                    self._ns_increment(fa, fb)     # Layer 2 +1
                     self.非最短hop清單[(fa, fb)] = (len(current_path), current_path)
                     print(f"[NonShortest] 新增: {fa} -> {fb}, "
                           f"hop={len(current_path)}, 路徑: {current_path}")
                     print(f"[CD][proc] {fa}->{fb} | pwp失敗還原NS | 清單={dict(self.非最短hop清單)}")
                 else:
-                    self._increment_weight(fa, fb, current_path)
+                    self._increment_weight(fa, fb, current_path)  # Layer 1 +1
                 continue
 
             self.app.remove_flows_for_path(old_pwp, fa, fb)
             self.app.install_flows_for_path(new_pwp, fa, fb, priority=2, idle_timeout=5)
             self.app.remove_active_flow(fa, fb)
+            self._cascade_changed = True  # 有路徑變換，標記供第二道 pass 判斷
 
             is_now_ns = (fa, fb) in self.非最短hop清單
             if is_now_ns:
@@ -505,7 +517,16 @@ class Routing_DTM_Self(RoutingBase):
             self._log_snapshot()
 
         self._cascade_depth -= 1
+
         if is_outermost:
+            # 第一道 pass 結束後，若有變換路徑且非第二道 pass，啟動第二道（NS only）
+            if not self._ns_only_mode and self._cascade_changed:
+                print(f"[CASCADE_2ND] 第一道pass有路徑變換，啟動NS second pass")
+                self.待檢查路徑.clear()
+                self._ns_only_mode = True
+                self._cascade(host_a, host_b, selected_path)
+                self._ns_only_mode = False
+
             elapsed = time.time() - _t0
             self._cascade_time_total += elapsed
             self._cascade_count += 1
