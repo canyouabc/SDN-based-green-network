@@ -2,10 +2,27 @@
 
 import re
 import random
+import logging
+import os
 from .routing_base import RoutingBase
 
 ENABLE_NEW_ALGO = True  # True：兩階段選路（2020過濾 → 權重圖選最佳）
 CASCADE_DEEP_LOG = 10   # cascade 遞迴超過此深度時印 log
+
+# ── [CD] debug log：只寫檔案，不輸出到 terminal ──────────────────
+os.makedirs("log", exist_ok=True)
+_cd_logger = logging.getLogger("cascade_debug")
+_cd_logger.setLevel(logging.DEBUG)
+_cd_logger.propagate = False   # 不往 root logger 傳（避免出現在 terminal）
+if not _cd_logger.handlers:
+    _cd_fh = logging.FileHandler("log/cascade_debug.log", mode="w")
+    _cd_fh.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d %(message)s",
+                                          datefmt="%H:%M:%S"))
+    _cd_logger.addHandler(_cd_fh)
+
+def _cd_log(msg):
+    _cd_logger.debug(msg)
+# ─────────────────────────────────────────────────────────────────
 
 
 class Routing_DTM_Self(RoutingBase):
@@ -249,7 +266,7 @@ class Routing_DTM_Self(RoutingBase):
 
         if best_hop > global_min_hop:
             # NS 分支：Layer 2 唯讀評分，選後才 +1 Layer 2（不動 Layer 1）
-            print(f"[CD][compute] {host_a}->{host_b} | NS分支 | best_hop={best_hop} global_min={global_min_hop} | prefer_current={prefer_current}")
+            _cd_log(f"[CD][compute] {host_a}->{host_b} | NS分支 | best_hop={best_hop} global_min={global_min_hop} | prefer_current={prefer_current}")
 
             scored = sorted(
                 ((sum(self.ns_weight_map.get(sw, 0) for sw in p), p) for p in candidates),
@@ -257,7 +274,7 @@ class Routing_DTM_Self(RoutingBase):
             )
             best_weight = scored[0][0]
             tied = [p for w, p in scored if w == best_weight]
-            print(f"[CD][compute] {host_a}->{host_b} | NS候選={[p for _,p in scored]} | best_weight={best_weight} | tied={tied}")
+            _cd_log(f"[CD][compute] {host_a}->{host_b} | NS候選={[p for _,p in scored]} | best_weight={best_weight} | tied={tied}")
 
             if len(tied) > 1:
                 scored0 = sorted(
@@ -267,14 +284,14 @@ class Routing_DTM_Self(RoutingBase):
                 tied = [p for w, p in scored0 if w == scored0[0][0]]
 
             if prefer_current and prefer_current in tied:
-                print(f"[CD][compute] {host_a}->{host_b} | prefer_current命中→return None（不換路）")
+                _cd_log(f"[CD][compute] {host_a}->{host_b} | prefer_current命中→return None（不換路）")
                 return None
 
             selected = random.choice(tied)
             self.非最短hop清單[(host_a, host_b)] = (best_hop, selected)
             self._ns_increment(host_a, host_b)  # Layer 2 +1（選後才更新）
             print(f"[NonShortest] 新增: {host_a} -> {host_b}, hop={best_hop}, 路徑: {selected}")
-            print(f"[CD][compute] {host_a}->{host_b} | NS寫入清單完成 | 清單={dict(self.非最短hop清單)}")
+            _cd_log(f"[CD][compute] {host_a}->{host_b} | NS寫入清單完成 | 清單={dict(self.非最短hop清單)}")
             self._cascade(host_a, host_b, selected)
             return selected
 
@@ -433,19 +450,19 @@ class Routing_DTM_Self(RoutingBase):
         shortest_flows = []
         for fa, fb, path in self.app.get_active_flows():
             if (fa, fb) in self.待檢查路徑:
-                print(f"[CD][collect] {fa}->{fb} 跳過（已在待檢查路徑）")
+                _cd_log(f"[CD][collect] {fa}->{fb} 跳過（已在待檢查路徑）")
                 continue
             if (fa, fb) in self.非最短hop清單:
                 _, ns_path = self.非最短hop清單[(fa, fb)]
-                print(f"[CD][collect] {fa}->{fb} path={ns_path} is_ns=True 加入重算")
+                _cd_log(f"[CD][collect] {fa}->{fb} path={ns_path} is_ns=True 加入重算")
                 ns_flows.append((fa, fb, ns_path, True))
             elif not self._ns_only_mode:
-                print(f"[CD][collect] {fa}->{fb} path={path} is_ns=False 加入重算")
+                _cd_log(f"[CD][collect] {fa}->{fb} path={path} is_ns=False 加入重算")
                 shortest_flows.append((fa, fb, path, False))
 
         flows_to_check = ns_flows + shortest_flows
 
-        print(f"[CD][cascade] depth={self._cascade_depth} "
+        _cd_log(f"[CD][cascade] depth={self._cascade_depth} "
               f"pass={'2nd-NS' if self._ns_only_mode else '1st'} "
               f"trigger={host_a}->{host_b} | 共{len(flows_to_check)}個flow待重算 "
               f"| 清單={dict(self.非最短hop清單)}")
@@ -454,49 +471,49 @@ class Routing_DTM_Self(RoutingBase):
             self.待檢查路徑.add((fa, fb))
 
         for fa, fb, current_path, is_ns in flows_to_check:
-            print(f"[CD][proc] ── 處理 {fa}->{fb} | current_path={current_path} is_ns={is_ns}")
+            _cd_log(f"[CD][proc] ── 處理 {fa}->{fb} | current_path={current_path} is_ns={is_ns}")
             # 1. 扒乾淨自己的權重貢獻（影響哪層就扒哪層）
             if is_ns:
                 self._ns_decrement(fa, fb)         # Layer 2 -1
                 self.非最短hop清單.pop((fa, fb), None)
                 print(f"[NonShortest] 移除: {fa} -> {fb}")
-                print(f"[CD][proc] {fa}->{fb} | 扒乾淨NS權重完成 | 清單={dict(self.非最短hop清單)}")
+                _cd_log(f"[CD][proc] {fa}->{fb} | 扒乾淨NS權重完成 | 清單={dict(self.非最短hop清單)}")
             else:
                 self._decrement_weight(fa, fb, current_path)  # Layer 1 -1
-                print(f"[CD][proc] {fa}->{fb} | 扒乾淨一般權重完成")
+                _cd_log(f"[CD][proc] {fa}->{fb} | 扒乾淨一般權重完成")
 
             # 2. 當作新流量重算（prefer_current：若仍在最佳群就不換）
-            print(f"[CD][proc] {fa}->{fb} | 呼叫_compute_path prefer_current={current_path}")
+            _cd_log(f"[CD][proc] {fa}->{fb} | 呼叫_compute_path prefer_current={current_path}")
             new_path = self._compute_path(fa, fb, prefer_current=current_path)
-            print(f"[CD][proc] {fa}->{fb} | _compute_path回傳={new_path} "
+            _cd_log(f"[CD][proc] {fa}->{fb} | _compute_path回傳={new_path} "
                   f"new_is_ns={self._is_ns_path(fa, fb, new_path) if new_path else 'N/A'}")
 
             # 3. None → 現有路徑仍是最佳，還原
             if new_path is None:
-                print(f"[CD][proc] {fa}->{fb} | new_path=None→還原")
+                _cd_log(f"[CD][proc] {fa}->{fb} | new_path=None→還原")
                 if is_ns:
                     self._ns_increment(fa, fb)     # Layer 2 +1
                     self.非最短hop清單[(fa, fb)] = (len(current_path), current_path)
                     print(f"[NonShortest] 新增: {fa} -> {fb}, "
                           f"hop={len(current_path)}, 路徑: {current_path}")
-                    print(f"[CD][proc] {fa}->{fb} | 還原NS完成 | 清單={dict(self.非最短hop清單)}")
+                    _cd_log(f"[CD][proc] {fa}->{fb} | 還原NS完成 | 清單={dict(self.非最短hop清單)}")
                 else:
                     self._increment_weight(fa, fb, current_path)  # Layer 1 +1
-                    print(f"[CD][proc] {fa}->{fb} | 還原一般權重完成")
+                    _cd_log(f"[CD][proc] {fa}->{fb} | 還原一般權重完成")
                 continue
 
             # 4. 換路
             old_pwp = self.app.build_path_with_ports(current_path, fa, fb)
             new_pwp = self.app.build_path_with_ports(new_path, fa, fb)
-            print(f"[CD][proc] {fa}->{fb} | build_pwp: old={'OK' if old_pwp else 'None'} new={'OK' if new_pwp else 'None'}")
+            _cd_log(f"[CD][proc] {fa}->{fb} | build_pwp: old={'OK' if old_pwp else 'None'} new={'OK' if new_pwp else 'None'}")
             if old_pwp is None or new_pwp is None:
-                print(f"[CD][proc] {fa}->{fb} | pwp失敗→還原")
+                _cd_log(f"[CD][proc] {fa}->{fb} | pwp失敗→還原")
                 if is_ns:
                     self._ns_increment(fa, fb)     # Layer 2 +1
                     self.非最短hop清單[(fa, fb)] = (len(current_path), current_path)
                     print(f"[NonShortest] 新增: {fa} -> {fb}, "
                           f"hop={len(current_path)}, 路徑: {current_path}")
-                    print(f"[CD][proc] {fa}->{fb} | pwp失敗還原NS | 清單={dict(self.非最短hop清單)}")
+                    _cd_log(f"[CD][proc] {fa}->{fb} | pwp失敗還原NS | 清單={dict(self.非最短hop清單)}")
                 else:
                     self._increment_weight(fa, fb, current_path)  # Layer 1 +1
                 continue
@@ -514,7 +531,7 @@ class Routing_DTM_Self(RoutingBase):
                 print(f"[FLOW_CASCADE_NS] {fa} -> {fb}, path={new_path}")
             else:
                 print(f"[FLOW_CASCADE] {fa} -> {fb}, path={new_path}")
-            print(f"[CD][proc] {fa}->{fb} | 換路完成 is_now_ns={is_now_ns} | 清單={dict(self.非最短hop清單)}")
+            _cd_log(f"[CD][proc] {fa}->{fb} | 換路完成 is_now_ns={is_now_ns} | 清單={dict(self.非最短hop清單)}")
 
             self.app.add_active_flow(fa, fb, new_path, is_reroute=True)
             self._log_snapshot()
