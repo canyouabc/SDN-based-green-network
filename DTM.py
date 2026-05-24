@@ -58,7 +58,7 @@ ENABLE_BANDWIDTH_MEASUREMENT = True
 # 選項: 'auto_k_short'
 # 選項: 'dijkstra' (Routing_DTM_Dijkstra) — 同 2020 邏輯，不依賴 k_short.txt
 # 選項: 'self' (Routing_DTM_Self) — 2020 延伸，加入 active flow 重疊度排序
-ROUTING_ALGORITHM = '2020'
+ROUTING_ALGORITHM = 'self'
 # ======================================================
 
 # ==================== Reroute 觸發條件設定 ====================
@@ -667,6 +667,9 @@ class ProjectController(app_manager.RyuApp):
                     if phy_link not in physical_link_traffic:
                         src_dpid, dst_dpid = phy_link
                         self.link_status.update_link_status(src_dpid, dst_dpid, 0)
+
+                if ROUTING_ALGORITHM == 'self' and self.routing_module:
+                    self.routing_module.refresh_link_cache()
                 
                 # ← 在每輪結束時，列印 link 狀態統計
                 status_counts = self.link_status.count_links_by_status()
@@ -1301,7 +1304,7 @@ class ProjectController(app_manager.RyuApp):
           self.pkt_in_pair_counter = getattr(self, 'pkt_in_pair_counter', {})
           self.pkt_in_pair_counter[_pair] = self.pkt_in_pair_counter.get(_pair, 0) + 1
 
-          if self.pkt_in_pair_counter[_pair] > 100:
+          if self.pkt_in_pair_counter[_pair] % 100 == 0:
               _udp_count = self.udp_pkt_counter.get(_pair, 0)
               _tcp_count = self.tcp_pkt_counter.get(_pair, 0)
               _has_flow  = _pair in self.active_flows
