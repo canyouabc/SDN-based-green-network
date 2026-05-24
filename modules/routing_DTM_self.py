@@ -4,6 +4,7 @@ import re
 import random
 import logging
 import os
+import time
 from .routing_base import RoutingBase
 
 ENABLE_NEW_ALGO = True  # True：兩階段選路（2020過濾 → 權重圖選最佳）
@@ -175,7 +176,7 @@ class Routing_DTM_Self(RoutingBase):
             for sw in switch_set:
                 self.core_weight_map[sw] = self.core_weight_map.get(sw, 0) + 1
 
-            # Step 2：對此 hop 群的路徑評分，排除含 OVERLOAD 的路徑
+            # Step 2：對此 hop 群的路徑評分，排除含 OVERLOAD/DANGER 的路徑
             usable = []
             for path in paths:
                 if len(path) != hop:
@@ -183,7 +184,7 @@ class Routing_DTM_Self(RoutingBase):
                 has_overload = False
                 for i in range(len(path) - 1):
                     link = (min(path[i], path[i + 1]), max(path[i], path[i + 1]))
-                    if all_link_status.get(link, {}).get('status') == 'OVERLOAD':
+                    if all_link_status.get(link, {}).get('status') in ('OVERLOAD', 'DANGER'):
                         has_overload = True
                         break
                 if has_overload:
@@ -229,7 +230,7 @@ class Routing_DTM_Self(RoutingBase):
 
         active_switches = self._build_active_switches(exclude_pair=(host_a, host_b))
 
-        # Phase 1：計算每條路徑的 inactive switch 數與 switch 數，排除 OVERLOAD
+        # Phase 1：計算每條路徑的 inactive switch 數與 switch 數，排除 OVERLOAD/DANGER
         # hop 以 len(path)（switch 數）計，與 k_short_dist 的 key 單位一致
         valid_paths = []
         for path in paths:
@@ -237,14 +238,14 @@ class Routing_DTM_Self(RoutingBase):
             for i in range(len(path) - 1):
                 link = (min(path[i], path[i + 1]), max(path[i], path[i + 1]))
                 status = all_link_status.get(link, {}).get('status', 'NORMAL')
-                if status == 'OVERLOAD':
+                if status in ('OVERLOAD', 'DANGER'):
                     has_overload = True
                     break
             if not has_overload:
                 inactive_counter = sum(1 for sw in path if sw not in active_switches)
                 valid_paths.append((inactive_counter, len(path), path))
 
-        # 第二輪：第一輪無結果時，把含 OVERLOAD 的路徑也納入
+        # 第二輪：第一輪無結果時，把含 OVERLOAD/DANGER 的路徑也納入
         if not valid_paths:
             for path in paths:
                 inactive_counter = sum(1 for sw in path if sw not in active_switches)
@@ -326,6 +327,12 @@ class Routing_DTM_Self(RoutingBase):
         return selected
 
     def admit_flow(self, host_a, host_b):
+        if self._ns_only_mode:
+            print(f"[CASCADE_WARN] admit_flow 進入時 _ns_only_mode=True，"
+                  f"前次 cascade 可能異常中止未還原（{host_a}->{host_b}）")
+        if self._cascade_depth != 0:
+            print(f"[CASCADE_WARN] admit_flow 進入時 _cascade_depth={self._cascade_depth}，"
+                  f"前次 cascade 可能異常中止未還原（{host_a}->{host_b}）")
         self.待檢查路徑.clear()  # 每次新流量開始一輪新的 cascade session
         path = self.select_path(host_a, host_b)
         if path:
@@ -341,6 +348,12 @@ class Routing_DTM_Self(RoutingBase):
 
     def on_flow_removed(self, host_a, host_b, removed_path):
         """timeout 觸發的 flow 移除，以移除路徑的 hop 群做 cascade 檢查"""
+        if self._ns_only_mode:
+            print(f"[CASCADE_WARN] on_flow_removed 進入時 _ns_only_mode=True，"
+                  f"前次 cascade 可能異常中止未還原（{host_a}->{host_b}）")
+        if self._cascade_depth != 0:
+            print(f"[CASCADE_WARN] on_flow_removed 進入時 _cascade_depth={self._cascade_depth}，"
+                  f"前次 cascade 可能異常中止未還原（{host_a}->{host_b}）")
         if (host_a, host_b) in self.非最短hop清單:
             self._ns_decrement(host_a, host_b)             # Layer 2 -1
             self.非最短hop清單.pop((host_a, host_b), None)
@@ -350,81 +363,11 @@ class Routing_DTM_Self(RoutingBase):
         self.待檢查路徑.clear()
         self._cascade(host_a, host_b, removed_path)
 
-    def _debug_draw_cascade(self, host_a, host_b, selected_path):
-        """cascade 深度超過 50 時，畫出當前 active flow 狀態並存檔"""
-        try:
-            import matplotlib.pyplot as plt
-            N = 5
-            fig, ax = plt.subplots(figsize=(8, 8))
-            ax.set_facecolor('#f8f8f8')
-            ax.set_xlim(-0.7, N - 0.3)
-            ax.set_ylim(-0.7, N - 0.3)
-            ax.set_aspect('equal')
-            ax.axis('off')
-
-            # 畫邊
-            for sw in range(1, N * N + 1):
-                r, c = (sw - 1) // N, (sw - 1) % N
-                x, y = c, N - 1 - r
-                if c < N - 1:
-                    ax.plot([x, x + 1], [y, y], color='#cccccc', lw=0.8)
-                if r < N - 1:
-                    ax.plot([x, x], [y, y - 1], color='#cccccc', lw=0.8)
-
-            # 畫 active flows
-            colors = plt.cm.tab10.colors
-            active = list(self.app.get_active_flows())
-            for i, (fa, fb, path) in enumerate(active):
-                color = colors[i % len(colors)]
-                is_ns = (fa, fb) in self.非最短hop清單
-                for j in range(len(path) - 1):
-                    u, v = path[j], path[j + 1]
-                    x0, y0 = (u-1) % N, N - 1 - (u-1) // N
-                    x1, y1 = (v-1) % N, N - 1 - (v-1) // N
-                    ax.plot([x0, x1], [y0, y1], color=color,
-                            lw=2.5, ls='--' if is_ns else '-', alpha=0.8)
-
-            # 畫 switch 節點
-            for sw in range(1, N * N + 1):
-                x, y = (sw-1) % N, N - 1 - (sw-1) // N
-                w = self.core_weight_map.get(sw, 0)
-                ax.plot(x, y, 'o', color='#ffffcc', markersize=22,
-                        markeredgecolor='#333333', lw=0.8)
-                ax.text(x, y + 0.08, str(sw), ha='center', va='center',
-                        fontsize=7.5, fontweight='bold')
-                if w > 0:
-                    ax.text(x, y - 0.22, f'w={w}', ha='center', va='top',
-                            fontsize=6, color='#555555')
-
-            tag = host_a.split(':')[-1] + '_' + host_b.split(':')[-1]
-            ax.set_title(
-                f'[DEBUG] cascade depth > 50\n'
-                f'{host_a} → {host_b}  path={selected_path}\n'
-                f'active flows={len(active)}  depth={self._cascade_depth}',
-                fontsize=8)
-
-            avg_t = (self._cascade_time_total / self._cascade_count
-                     if self._cascade_count > 0 else 0.0)
-            ax.text(1.02, 0.5,
-                    f'CASCADE avg\n{avg_t:.4f}s\n(n={self._cascade_count})',
-                    transform=ax.transAxes,
-                    fontsize=8, va='center', ha='left',
-                    bbox=dict(boxstyle='round', facecolor='#e8f4f8', alpha=0.8))
-
-            fname = f'debug_cascade_{tag}.png'
-            plt.tight_layout()
-            plt.savefig(fname, dpi=120, bbox_inches='tight')
-            plt.close()
-            print(f"[DEBUG] cascade depth={self._cascade_depth} > 50，圖已儲存: {fname}")
-        except Exception as e:
-            print(f"[DEBUG] 畫圖失敗: {e}")
-
     def _cascade(self, host_a, host_b, selected_path):
         """兩道 pass 重算機制：
         第一道：全部 flow 重算（NS 優先），遞迴，追蹤是否有路徑變換
         第二道：若第一道有變換，只重算 NS flow，遞迴，讓 NS flow 反應新狀態
         """
-        import time
         is_outermost = self._cascade_depth == 0
         if is_outermost:
             _t0 = time.time()
@@ -439,7 +382,8 @@ class Routing_DTM_Self(RoutingBase):
                   f"trigger={host_a}->{host_b}")
 
         if self._cascade_depth > 50:
-            self._debug_draw_cascade(host_a, host_b, selected_path)
+            print(f"[CASCADE_ABORT] depth={self._cascade_depth} 超過上限，強制中止 "
+                  f"trigger={host_a}->{host_b} path={selected_path}")
             self._cascade_depth -= 1
             if is_outermost:
                 print(f"[CASCADE_TIME] {time.time() - _t0:.4f}s")

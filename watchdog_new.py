@@ -12,7 +12,7 @@ MN_SESSION  = "mininet"
 
 GENERATE_ANIMATION = True  # 是否產出動畫 HTML
 
-HOSTS = [f"h{i}" for i in range(1, 17)]
+HOSTS = [f"h{i}" for i in range(1, 28)]
 EXPERIMENT_DURATION = 150  # seconds
 FLOW_DURATION = 15         # seconds
 LAMBDA = 1 / 3             # Poisson rate (期望間隔 3s)
@@ -204,11 +204,13 @@ if __name__ == "__main__":
         new_tmux(RYU_SESSION, "ryu-manager DTM.py --observe-links", ryu_log)
 
         print("[watchdog] 啟動 Mininet...")
-        new_tmux(MN_SESSION, "sudo python grid_topo.py", mn_log)
+        new_tmux(MN_SESSION, "sudo python cap_topo.py", mn_log)
 
         print("[watchdog] 等待 Mininet CLI 就緒...")
         wait_for_log(mn_log, "*** Starting CLI:", timeout=60)
-        time.sleep(0.5)
+
+        print("[watchdog] 等待 Ryu 拓撲學習完成（[LINK_READY]）...")
+        wait_for_log(ryu_log, "[LINK_READY]", timeout=60)
 
         tmux_send(MN_SESSION, "sendarp")
 
@@ -242,19 +244,6 @@ if __name__ == "__main__":
         extract_activeflow_log(ryu_log, activeflow_log)
         print(f"[watchdog] ActiveFlow log 已整理至 {activeflow_log}")
 
-        with open(experiment_log, "a") as f:
-            f.write(f"=== BATCH {batch_id} END {time.time():.3f} ===\n")
-        with open("experiment.log", "a") as f:
-            f.write(f"=== BATCH {batch_id} END ===\n")
-
-        print(f"=== BATCH {batch_id} END ===")
-
-        # 先關閉 session，再產出動畫，避免動畫阻塞期間延長 mininet 存活時間
-        cleanup_tmux()
-        time.sleep(3)
-        cleanup_mininet()
-        time.sleep(5)  # 等 mininet 完全釋放資源
-
         if GENERATE_ANIMATION:
             anim_path = activeflow_log.replace("activeflow-", "anim-").replace(".txt", ".html")
             anim_log  = anim_path.replace(".html", ".log")
@@ -266,3 +255,15 @@ if __name__ == "__main__":
                     start_new_session=True,
                 )
             print(f"[watchdog] 動畫背景產出中 → {anim_path}")
+
+        with open(experiment_log, "a") as f:
+            f.write(f"=== BATCH {batch_id} END {time.time():.3f} ===\n")
+        with open("experiment.log", "a") as f:
+            f.write(f"=== BATCH {batch_id} END ===\n")
+
+        print(f"=== BATCH {batch_id} END ===")
+
+        cleanup_tmux()
+        time.sleep(3)
+        cleanup_mininet()
+        time.sleep(5)  # 等 mininet 完全釋放資源

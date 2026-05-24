@@ -48,7 +48,7 @@ _bw_fh.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d %(message)s",
                                        datefmt="%H:%M:%S"))
 _bw_logger.addHandler(_bw_fh)
 # ==================== Feature Flags ======================
-ENABLE_DELAY_DETECTION = True
+ENABLE_DELAY_DETECTION = False
 ENABLE_ROUTING = True
 ENABLE_BANDWIDTH_MEASUREMENT = True
 # =========================================================
@@ -58,7 +58,7 @@ ENABLE_BANDWIDTH_MEASUREMENT = True
 # 選項: 'auto_k_short'
 # 選項: 'dijkstra' (Routing_DTM_Dijkstra) — 同 2020 邏輯，不依賴 k_short.txt
 # 選項: 'self' (Routing_DTM_Self) — 2020 延伸，加入 active flow 重疊度排序
-ROUTING_ALGORITHM = 'self'
+ROUTING_ALGORITHM = '2020'
 # ======================================================
 
 # ==================== Reroute 觸發條件設定 ====================
@@ -79,6 +79,7 @@ REROUTE_LOAD_WEIGHT = {        # 各 link 狀態的負載分數
     'NORMAL':  1,
     'HIGH':    3,
     'OVERLOAD': -999,          # OVERLOAD 已由 LINK 觸發處理，此觸發不選
+    'DANGER':   -999,          # DANGER 已由 LINK 觸發處理，此觸發不選
 }
 # ============================================================
 
@@ -156,6 +157,9 @@ class ProjectController(app_manager.RyuApp):
         self.host_macs = {} # { mac: (dpid, port_no)}
         self.dpid_to_mac = {}            # {dpid: mac}
         self._topo_ready_logged = False  # [TOPO_READY] 只發一次
+        self._link_ready_logged = False  # [LINK_READY] 只發一次
+        self._last_sw_count     = 0
+        self._last_link_count   = 0
         self._flow_cookie_counter = 0
         self._flow_priority = {}     # {(src_mac, dst_mac): {'priority': int, 'last_time': float}}
         
@@ -230,6 +234,7 @@ class ProjectController(app_manager.RyuApp):
         # ==================== 執行緒啟動 ====================
         # ← 條件啟動延遲偵測線程
         self.monitor_thread = hub.spawn(self._monitor)
+        self.link_ready_thread = hub.spawn(self._link_ready_watcher)
 
         if ENABLE_DELAY_DETECTION:
             # 經過檢查，問題不在這
@@ -486,7 +491,7 @@ class ProjectController(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_ARP)
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
+        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, 128)]  # ARP 最多 42 bytes，128 足夠
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
         mod = parser.OFPFlowMod(
             datapath=datapath, priority=10,
@@ -528,7 +533,7 @@ class ProjectController(app_manager.RyuApp):
                     if rebalanced:
                         break
                     status = link_info.get('status', 'NORMAL')
-                    if status not in ('LOW', 'OVERLOAD'):
+                    if status not in ('LOW', 'OVERLOAD', 'DANGER'):
                         continue
                     for host_a, host_b, path in self.get_active_flows():
                         has_link = any(
@@ -665,7 +670,7 @@ class ProjectController(app_manager.RyuApp):
                 
                 # ← 在每輪結束時，列印 link 狀態統計
                 status_counts = self.link_status.count_links_by_status()
-                print(f"SN: {status_counts['SN']}, LOW: {status_counts['LOW']}, NORMAL: {status_counts['NORMAL']}, HIGH: {status_counts['HIGH']}, OVERLOAD: {status_counts['OVERLOAD']}")
+                print(f"SN: {status_counts['SN']}, LOW: {status_counts['LOW']}, NORMAL: {status_counts['NORMAL']}, HIGH: {status_counts['HIGH']}, OVERLOAD: {status_counts['OVERLOAD']}, DANGER: {status_counts['DANGER']}")
                 
             except Exception as e:
                 self.logger.error(f"Error in bandwidth monitor: {e}")
@@ -715,6 +720,26 @@ class ProjectController(app_manager.RyuApp):
 
         
             
+    def _check_link_ready(self):
+        """檢查 switch 和 link 數量是否穩定，穩定則發出 [LINK_READY]"""
+        sw_count   = len(get_switch(self.topology_api_app, None))
+        link_count = len(get_link(self.topology_api_app, None))
+        if (sw_count > 0 and link_count > 0
+                and sw_count   == self._last_sw_count
+                and link_count == self._last_link_count
+                and not self._link_ready_logged):
+            self._link_ready_logged = True
+            print(f"[LINK_READY] 共 {sw_count} 個 switch，{link_count} 條 link")
+        self._last_sw_count   = sw_count
+        self._last_link_count = link_count
+
+    def _link_ready_watcher(self):
+        """快速輪詢直到 [LINK_READY] 確認，之後結束"""
+        hub.sleep(3)
+        while not self._link_ready_logged:
+            self._check_link_ready()
+            hub.sleep(2)
+
     def update_host_mac_table(self):
         """从拓扑信息更新主机MAC表"""
         hosts = get_host(self.topology_api_app, None)
@@ -1010,7 +1035,11 @@ class ProjectController(app_manager.RyuApp):
 
         if count % self.TCP_THROTTLE_N != 0:
             return  # 不是第 0, 20, 40... 次，直接跳過
-        
+
+        # ★ 已有 active flow，不重複計算
+        if pair in self.active_flows:
+            return
+
         # === 以下才是真正的處理邏輯 ===
         self.logger.debug(f"[UNKNOWN_TCP] switch {datapath.id}, pair {pair}, count {count}")
 
@@ -1022,7 +1051,7 @@ class ProjectController(app_manager.RyuApp):
                 mod = parser.OFPFlowMod(
                     datapath=datapath,
                     priority=2,
-                    idle_timeout=3,
+                    idle_timeout=5,
                     hard_timeout=5,
                     match=match,
                     instructions=[]
@@ -1038,6 +1067,18 @@ class ProjectController(app_manager.RyuApp):
         elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self'):
             # 2020 / dijkstra 版本的路由計算邏輯
             try:
+                parser = datapath.ofproto_parser
+                match = parser.OFPMatch(eth_src=eth.src, eth_dst=eth.dst)
+                mod = parser.OFPFlowMod(
+                    datapath=datapath,
+                    priority=1,        # 臨時 DROP，防止選路期間重複 PacketIn
+                    idle_timeout=3,
+                    hard_timeout=5,
+                    match=match,
+                    instructions=[]    # DROP
+                )
+                datapath.send_msg(mod)
+
                 src_mac = eth.src
                 dst_mac = eth.dst
 
@@ -1053,7 +1094,8 @@ class ProjectController(app_manager.RyuApp):
                         if path:
                             _prio = self._get_next_flow_priority(src_mac, dst_mac)
                             self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
-                            print(f"[{ROUTING_ALGORITHM} Routing TCP] {src_mac} -> {dst_mac}: path {switch_path}")
+                            _first_sw, _first_in, _first_out = path[0]
+                            print(f"[{ROUTING_ALGORITHM} Routing TCP] {src_mac} -> {dst_mac}: path {switch_path} | sw={_first_sw} in_port={_first_in} out_port={_first_out} priority={_prio}")
                         else:
                             print(f"[{ROUTING_ALGORITHM} Routing TCP] 無法轉換路徑信息: {switch_path}")
                     else:
@@ -1092,6 +1134,10 @@ class ProjectController(app_manager.RyuApp):
                 print(f"[UDP THROTTLE] pair={pair} count={count} N={self.UDP_THROTTLE_N}")
             return
 
+        # ★ 已有 active flow，不重複計算
+        if pair in self.active_flows:
+            return
+
         # === 以下才是真正的處理邏輯 ===
         print(f"[UNKNOWN_UDP] switch {datapath.id}, pair {pair}, count {count}")
         self.logger.debug(f"[UNKNOWN_UDP] switch {datapath.id}, pair {pair}, count {count}")
@@ -1104,7 +1150,7 @@ class ProjectController(app_manager.RyuApp):
                 mod = parser.OFPFlowMod(
                     datapath=datapath,
                     priority=1,
-                    idle_timeout=3,
+                    idle_timeout=5,
                     hard_timeout=5,
                     match=match,
                     instructions=[]
@@ -1120,20 +1166,18 @@ class ProjectController(app_manager.RyuApp):
         elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self'):
             # 2020 / dijkstra 版本的路由計算邏輯
             try:
-
                 parser = datapath.ofproto_parser
                 match = parser.OFPMatch(eth_src=eth.src, eth_dst=eth.dst)
                 mod = parser.OFPFlowMod(
                     datapath=datapath,
-                    priority=1,        # 低於正式 flow 的 priority=2
+                    priority=1,        # 臨時 DROP，防止選路期間重複 PacketIn
                     idle_timeout=3,
                     hard_timeout=5,
                     match=match,
                     instructions=[]    # DROP
                 )
-                datapath.send_msg(mod)  # 只裝在當前 switch 就夠了
-                # 反向 DROP
-                
+                datapath.send_msg(mod)
+
                 src_mac = eth.src
                 dst_mac = eth.dst
 
@@ -1150,7 +1194,8 @@ class ProjectController(app_manager.RyuApp):
                             if path:
                                 _prio = self._get_next_flow_priority(src_mac, dst_mac)
                                 self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
-                                print(f"[{ROUTING_ALGORITHM} Routing UDP] {src_mac} -> {dst_mac}: path {switch_path}")
+                                _first_sw, _first_in, _first_out = path[0]
+                                print(f"[{ROUTING_ALGORITHM} Routing UDP] {src_mac} -> {dst_mac}: path {switch_path} | sw={_first_sw} in_port={_first_in} out_port={_first_out} priority={_prio}")
                             else:
                                 print(f"[{ROUTING_ALGORITHM} Routing UDP] 無法轉換路徑信息: {switch_path}")
                     else:
@@ -1188,7 +1233,7 @@ class ProjectController(app_manager.RyuApp):
          ofproto = datapath.ofproto
          parser = datapath.ofproto_parser
          match = parser.OFPMatch()
-         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
+         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, 128)]  # 只送前 128 bytes，夠解析 header 即可
          inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS , actions)]
          mod = datapath.ofproto_parser.OFPFlowMod(
          datapath=datapath, match=match, cookie=0,
@@ -1256,30 +1301,15 @@ class ProjectController(app_manager.RyuApp):
           self.pkt_in_pair_counter = getattr(self, 'pkt_in_pair_counter', {})
           self.pkt_in_pair_counter[_pair] = self.pkt_in_pair_counter.get(_pair, 0) + 1
 
-          if self.pkt_in_pair_counter[_pair] % 100 == 0:
-              _now = time.time()
-              _rev = (_pair[1], _pair[0])
-
+          if self.pkt_in_pair_counter[_pair] > 100:
               _udp_count = self.udp_pkt_counter.get(_pair, 0)
               _tcp_count = self.tcp_pkt_counter.get(_pair, 0)
-              _udp_last  = self.udp_last_seen.get(_pair)
-              _udp_idle  = f"{_now - _udp_last:.2f}s" if _udp_last else "never"
               _has_flow  = _pair in self.active_flows
-
-              _r_udp_count = self.udp_pkt_counter.get(_rev, 0)
-              _r_tcp_count = self.tcp_pkt_counter.get(_rev, 0)
-              _r_udp_last  = self.udp_last_seen.get(_rev)
-              _r_udp_idle  = f"{_now - _r_udp_last:.2f}s" if _r_udp_last else "never"
-              _r_has_flow  = _rev in self.active_flows
-
-              print(f"[PKT-IN PAIR]     {_pair[0]} -> {_pair[1]} "
+              print(f"[PKT-IN PAIR] {_pair[0]} -> {_pair[1]} "
                     f"total={self.pkt_in_pair_counter[_pair]} "
+                    f"sw={datapath.id} port={in_port} "
                     f"udp={_udp_count} tcp={_tcp_count} "
-                    f"udp_idle={_udp_idle} active_flow={_has_flow}")
-              print(f"[PKT-IN PAIR rev] {_rev[0]} -> {_rev[1]} "
-                    f"total={self.pkt_in_pair_counter.get(_rev, 0)} "
-                    f"udp={_r_udp_count} tcp={_r_tcp_count} "
-                    f"udp_idle={_r_udp_idle} active_flow={_r_has_flow}")
+                    f"active_flow={_has_flow}")
 
       # 處理 LLDP 封包
       #if eth.ethertype != 0x88CC:

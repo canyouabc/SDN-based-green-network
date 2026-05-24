@@ -141,6 +141,11 @@ def topology():
     for sw in core + dist + wan + access:
         sw.start([c0])
 
+    print("*** 設定 PacketIn rate limit...")
+    for sw in core + dist + wan + access:
+        sw.cmd(f'sudo ovs-vsctl set controller {sw.name} '
+               f'controller-rate-limit=100 controller-burst-limit=25')
+
     print("*** Running CLI")
     MyCLI(net)
 

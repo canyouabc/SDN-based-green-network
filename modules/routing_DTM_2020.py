@@ -170,7 +170,7 @@ class Routing_DTM_2020(RoutingBase):
 
                 if status == 'SN':
                     sn_counter += 1
-                elif status == 'OVERLOAD':
+                elif status in ('OVERLOAD', 'DANGER'):
                     has_overload = True
                     break
 

@@ -81,7 +81,7 @@ class Routing_DTM_Dijkstra(RoutingBase):
                 link_info = all_link_status.get(phy_key, {})
                 status    = link_info.get('status', 'SN')
 
-                if exclude_overload and status == 'OVERLOAD':
+                if exclude_overload and status in ('OVERLOAD', 'DANGER'):
                     continue
 
                 if mode == 'energy':
@@ -179,7 +179,7 @@ class Routing_DTM_Dijkstra(RoutingBase):
                 hop_count += 1
                 if status == 'SN':
                     sn_count += 1
-                elif status == 'OVERLOAD':
+                elif status in ('OVERLOAD', 'DANGER'):
                     has_overload = True
                     break
             if exclude_overload and has_overload:

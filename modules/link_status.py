@@ -7,6 +7,7 @@ link_status.py - 鏈路狀態判斷模組
 - NORMAL (20-60%): 正常
 - HIGH (60-80%): 高負載
 - OVERLOAD (80-100%): 超載
+- DANGER (>100%): 危險（超出鏈路容量）
 """
 
 class Link_Status:
@@ -18,12 +19,14 @@ class Link_Status:
         self.STATUS_NORMAL = "NORMAL"
         self.STATUS_HIGH = "HIGH"
         self.STATUS_OVERLOAD = "OVERLOAD"
+        self.STATUS_DANGER = "DANGER"
 
         # 狀態閾值（百分比）
         self.THRESHOLD_SN_TO_LOW = 1
         self.THRESHOLD_LOW_TO_NORMAL = 20
         self.THRESHOLD_NORMAL_TO_HIGH = 60
         self.THRESHOLD_HIGH_TO_OVERLOAD = 80
+        self.THRESHOLD_OVERLOAD_TO_DANGER = 100
 
         # 儲存所有 link 的狀態
         # {(src_dpid, dst_dpid): status}
@@ -38,7 +41,7 @@ class Link_Status:
             usage_percent: 頻寬使用率百分比 (0-100)
         
         Returns:
-            str: 狀態字符串 (SN, LOW, NORMAL, HIGH, OVERLOAD)
+            str: 狀態字符串 (SN, LOW, NORMAL, HIGH, OVERLOAD, DANGER)
         """
         if usage_percent < self.THRESHOLD_SN_TO_LOW:
             return self.STATUS_SN
@@ -48,8 +51,10 @@ class Link_Status:
             return self.STATUS_NORMAL
         elif usage_percent < self.THRESHOLD_HIGH_TO_OVERLOAD:
             return self.STATUS_HIGH
-        else:
+        elif usage_percent < self.THRESHOLD_OVERLOAD_TO_DANGER:
             return self.STATUS_OVERLOAD
+        else:
+            return self.STATUS_DANGER
 
 
     def update_link_status(self, src_dpid, dst_dpid, usage_percent):
@@ -106,7 +111,8 @@ class Link_Status:
             self.STATUS_LOW: 0,
             self.STATUS_NORMAL: 0,
             self.STATUS_HIGH: 0,
-            self.STATUS_OVERLOAD: 0
+            self.STATUS_OVERLOAD: 0,
+            self.STATUS_DANGER: 0
         }
         
         for info in self.link_status_map.values():
@@ -132,6 +138,7 @@ class Link_Status:
             self.STATUS_NORMAL: '\033[94m',     # 藍色
             self.STATUS_HIGH: '\033[93m',       # 黃色
             self.STATUS_OVERLOAD: '\033[91m',   # 紅色
+            self.STATUS_DANGER: '\033[95m',     # 洋紅色
             self.STATUS_SN: '\033[90m'          # 灰色
         }
         return color_map.get(status, '')
@@ -152,6 +159,7 @@ class Link_Status:
             self.STATUS_NORMAL: "正常",
             self.STATUS_HIGH: "高負載",
             self.STATUS_OVERLOAD: "超載",
+            self.STATUS_DANGER: "危險",
             self.STATUS_SN: "SN"
         }
         return desc_map.get(status, "未知")
