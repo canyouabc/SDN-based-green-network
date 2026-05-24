@@ -72,6 +72,11 @@ REROUTE_LOAD_WEIGHT = {        # 各 link 狀態的負載分數
 }
 # ============================================================
 
+# ==================== Flow Priority Counter ==================
+FLOW_BASE_PRIORITY = 2      # 路由流量的基礎優先度
+FLOW_PRIORITY_IDLE = 10.0   # 超過此秒數未觸發，計數重置（假設 idle_timeout=5 已清除舊流）
+# ============================================================
+
 # ==================== PacketIn 封包處理演算法開關 =========
 # TCP/UDP/ICMP/IPv4/IPv6 封包的處理策略
 # FLOOD 還沒有實做，請不要使用 FLOOD 選項
@@ -140,19 +145,21 @@ class ProjectController(app_manager.RyuApp):
         self.last_udp_processing_time = {}  # {pair: timestamp}
         self.host_macs = {} # { mac: (dpid, port_no)}
         self.dpid_to_mac = {}            # {dpid: mac}
+        self._topo_ready_logged = False  # [TOPO_READY] 只發一次
         self._flow_cookie_counter = 0
+        self._flow_priority = {}     # {(src_mac, dst_mac): {'priority': int, 'last_time': float}}
         
         # ← TCP 節流属性
         self.tcp_pkt_counter = {}        # (src, dst) → 計數
         self.tcp_last_seen = {}          # (src, dst) → 最後一次看到的時間
-        self.TCP_THROTTLE_N = 5        # 每 N 次觸發一次
+        self.TCP_THROTTLE_N = 1000        # 每 N 次觸發一次
         self.TCP_RESET_IDLE = 1.0        # 閒置幾秒後重置計數器
         
         # ← UDP 節流属性
         self.udp_pkt_counter = {}        # (src, dst) → 計數
         self.udp_last_seen = {}          # (src, dst) → 最後一次看到的時間
         self.UDP_THROTTLE_N = 1000     # 每 N 次觸發一次
-        self.UDP_RESET_IDLE = 1.0        # 閒置幾秒後重置計數器
+        self.UDP_RESET_IDLE = 5.0        # 閒置幾秒後重置計數器
         # ==================== 拓扑数据 ====================
         self.myswitches = []
         
@@ -281,6 +288,25 @@ class ProjectController(app_manager.RyuApp):
                 count[dpid] = count.get(dpid, 0) + 1
         return count
 
+    def _get_next_flow_priority(self, src_mac, dst_mac):
+        """返回 (old_priority, new_priority)。
+        每次安裝新路徑自動 +1；超過 FLOW_PRIORITY_IDLE 秒未觸發，計數重置
+        （此時假設舊流已被 idle_timeout 清除，old_priority 回傳 None）。
+        """
+        now = time.time()
+        key = (src_mac, dst_mac)
+        entry = self._flow_priority.get(key)
+
+        if entry is None or now - entry['last_time'] > FLOW_PRIORITY_IDLE:
+            old_priority = None           # 首次安裝，或舊流已 idle_timeout 過期
+            new_priority = FLOW_BASE_PRIORITY
+        else:
+            old_priority = entry['priority']
+            new_priority = old_priority + 1
+
+        self._flow_priority[key] = {'priority': new_priority, 'last_time': now}
+        return old_priority, new_priority
+
     def _do_reroute(self, host_a, host_b, path, reason=""):
         new_path = self.routing_module.select_path(host_a, host_b, retrans_path=path)
         if new_path is None or new_path == path:
@@ -290,8 +316,11 @@ class ProjectController(app_manager.RyuApp):
             print(f"[Reroute:{reason}] 無法建立新路徑 port 資訊，跳過: {host_a} -> {host_b}")
             return False
         old_pwp = self.build_path_with_ports(path, host_a, host_b)
-        self.remove_flows_for_path(old_pwp, host_a, host_b)
-        self.install_flows_for_path(new_pwp, host_a, host_b, priority=2, idle_timeout=5)
+        old_priority, new_priority = self._get_next_flow_priority(host_a, host_b)
+        # 先裝新路徑（優先度更高，立即生效），再刪舊路徑（優先度不同，不會誤刪）
+        self.install_flows_for_path(new_pwp, host_a, host_b, priority=new_priority, idle_timeout=5)
+        if old_priority is not None:
+            self.remove_flows_for_path(old_pwp, host_a, host_b, priority=old_priority)
         self.remove_active_flow(host_a, host_b, path)
         self.add_active_flow(host_a, host_b, new_path)
         print(f"[Reroute:{reason}] {host_a}->{host_b}: {path} → {new_path}")
@@ -686,16 +715,23 @@ class ProjectController(app_manager.RyuApp):
     def update_host_mac_table(self):
         """从拓扑信息更新主机MAC表"""
         hosts = get_host(self.topology_api_app, None)
-        
+        new_added = 0
+
         for host in hosts:
             mac = host.mac
             dpid = host.port.dpid
             port_no = host.port.port_no
-            
+
             if mac not in self.host_macs:
                 self.host_macs[mac] = (dpid, port_no)
                 self.dpid_to_mac[dpid] = mac
-                print(f"Added host: {mac} at switch {dpid}, port {port_no}")            
+                print(f"Added host: {mac} at switch {dpid}, port {port_no}")
+                new_added += 1
+
+        # 這輪沒有新增 host，且已有資料 → 拓撲穩定，發一次 [TOPO_READY]
+        if new_added == 0 and self.host_macs and not self._topo_ready_logged:
+            self._topo_ready_logged = True
+            print(f"[TOPO_READY] 所有 host 已學習完成，共 {len(self.host_macs)} 個")            
 
     def _switch_to_switch_delay_count(self, switch_a, switch_b):
         if not ENABLE_DELAY_DETECTION:
@@ -827,8 +863,8 @@ class ProjectController(app_manager.RyuApp):
                 instructions=inst_rev
             )
             datapath.send_msg(mod_rev)
-    def remove_flows_for_path(self, path, src_mac, dst_mac):
-        """主動刪除流表"""
+    def remove_flows_for_path(self, path, src_mac, dst_mac, priority=FLOW_BASE_PRIORITY):
+        """主動刪除流表。OFPFC_DELETE_STRICT 需指定 priority 才能精確比對。"""
         for sw_dpid, in_port, out_port in path:
             if sw_dpid not in self.datapaths:
                 print(f"Warning: Switch {sw_dpid} not found")
@@ -843,6 +879,7 @@ class ProjectController(app_manager.RyuApp):
             mod = parser.OFPFlowMod(
                 datapath=datapath,
                 match=match,
+                priority=priority,
                 command=ofproto.OFPFC_DELETE_STRICT,
                 out_port=ofproto.OFPP_ANY,
                 out_group=ofproto.OFPG_ANY,
@@ -854,11 +891,12 @@ class ProjectController(app_manager.RyuApp):
             mod_rev = parser.OFPFlowMod(
                 datapath=datapath,
                 match=match_rev,
+                priority=priority,
                 command=ofproto.OFPFC_DELETE_STRICT,
                 out_port=ofproto.OFPP_ANY,
                 out_group=ofproto.OFPG_ANY,
             )
-            datapath.send_msg(mod_rev)            
+            datapath.send_msg(mod_rev)
 
     def _handle_arp_request(self, datapath, in_port, arp_pkt):
         """Controller直接回應ARP請求"""
@@ -1010,7 +1048,8 @@ class ProjectController(app_manager.RyuApp):
                         path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
 
                         if path:
-                            self.install_flows_for_path(path, src_mac, dst_mac, priority=2, idle_timeout=5)
+                            _, _prio = self._get_next_flow_priority(src_mac, dst_mac)
+                            self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
                             print(f"[{ROUTING_ALGORITHM} Routing TCP] {src_mac} -> {dst_mac}: path {switch_path}")
                         else:
                             print(f"[{ROUTING_ALGORITHM} Routing TCP] 無法轉換路徑信息: {switch_path}")
@@ -1106,7 +1145,8 @@ class ProjectController(app_manager.RyuApp):
                             path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
 
                             if path:
-                                self.install_flows_for_path(path, src_mac, dst_mac, priority=2, idle_timeout=5)
+                                _, _prio = self._get_next_flow_priority(src_mac, dst_mac)
+                                self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
                                 print(f"[{ROUTING_ALGORITHM} Routing UDP] {src_mac} -> {dst_mac}: path {switch_path}")
                             else:
                                 print(f"[{ROUTING_ALGORITHM} Routing UDP] 無法轉換路徑信息: {switch_path}")
@@ -1163,7 +1203,7 @@ class ProjectController(app_manager.RyuApp):
         dp = msg.datapath
         ofp = dp.ofproto
 
-        if msg.priority != 2:
+        if msg.priority < FLOW_BASE_PRIORITY:
             return
 
         match = msg.match
