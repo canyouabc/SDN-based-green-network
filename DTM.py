@@ -128,6 +128,8 @@ if ENABLE_BANDWIDTH_MEASUREMENT:
     from modules.bandwidth_measurement import Bandwidth_Measurement
     from modules.link_status import Link_Status
 
+from modules.flow_stats import FlowStats
+
 
    
 
@@ -222,6 +224,8 @@ class ProjectController(app_manager.RyuApp):
             self.bandwidth_measurement = None
             self.link_status = None
 
+        self.flow_stats = FlowStats(self)
+
         if ENABLE_ROUTING:
             self.routing_module = routing_module(self)
         else:
@@ -249,6 +253,7 @@ class ProjectController(app_manager.RyuApp):
         if ENABLE_BANDWIDTH_MEASUREMENT:
             # 經過檢查，問題不在這
             self.bandwidth_monitor_thread = hub.spawn(self._bandwidth_monitor)
+        self.flow_stats_monitor_thread = hub.spawn(self._flow_stats_monitor)
         if ROUTING_ALGORITHM in ('2020', 'dijkstra'):
             self.dtm_monitor_thread = hub.spawn(self._monitor_DTM)
         if ROUTING_ALGORITHM == 'self':
@@ -266,6 +271,7 @@ class ProjectController(app_manager.RyuApp):
         if not is_reroute:
             self.flow_history_count += 1
             self.flow_history_hops  += len(path) - 1
+        self.flow_stats.assign(host_a, host_b, path)
         print(f"[ActiveFlow] 新增: {host_a} -> {host_b}, 路徑: {path}")
 
     def remove_active_flow(self, host_a, host_b, path=None, hard_timeout=None):
@@ -277,6 +283,7 @@ class ProjectController(app_manager.RyuApp):
                 print(f"[ActiveFlow] 忽略舊 Flow Removed 事件: {host_a} -> {host_b}")
                 return
         del self.active_flows[(host_a, host_b)]
+        self.flow_stats.unassign(host_a, host_b)
         print(f"[ActiveFlow] 移除: {host_a} -> {host_b}")
 
     def get_active_flows(self):
@@ -584,6 +591,17 @@ class ProjectController(app_manager.RyuApp):
             self.calculate_energy_saving_from_flows()
             hub.sleep(1)
 
+    def _flow_stats_monitor(self):
+        """Flow stats 輪詢線程（每秒 1 次）
+        只向有 assigned flow 的 switch 發送 OFPFlowStatsRequest。
+        Reply 由 flow_stats_reply_handler 非同步接收。
+        """
+        hub.sleep(10)  # 等待拓撲穩定
+        while True:
+            self.flow_stats.request_assigned()
+            hub.sleep(1)           # reply 在這段時間非同步抵達
+            self.flow_stats.log_summary()
+
     def _bandwidth_monitor(self):
         """
         頻寬監控線程（每秒1次）
@@ -833,6 +851,11 @@ class ProjectController(app_manager.RyuApp):
         req = parser.OFPPortStatsRequest(datapath, 0, ofproto.OFPP_ANY)
         datapath.send_msg(req)
     
+    @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
+    def flow_stats_reply_handler(self, ev):
+        """處理 FlowStats Reply，交給 flow_stats 模組解析"""
+        self.flow_stats.handle_reply(ev)
+
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
     def port_stats_reply_handler(self, ev):
         """處理 PortStats Reply（頻寬量測）"""

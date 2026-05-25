@@ -8,6 +8,8 @@ import time
 from .routing_base import RoutingBase
 
 ENABLE_NEW_ALGO = True       # True：兩階段選路（2020過濾 → 權重圖選最佳）
+ENABLE_LAYER2 = False        # True：Layer 2（ns_weight_map）作為 tiebreaker；False：跳過
+ENABLE_LAYER3 = False        # True：Layer 3（base_weight_map）作為最終 tiebreaker；False：Layer 2 後直接 random
 ENABLE_SNAPSHOT = False      # True：輸出 [SNAPSHOT] 供動畫使用；False：完全關閉（效能優先）
 SNAPSHOT_PER_REROUTE = False # True：每個換路 flow 都照快照（動畫逐步模式）；False：cascade 結束後照一次（需 ENABLE_SNAPSHOT=True）
 CD_DEBUG = False             # True：輸出 cascade debug log 至 log/cascade_debug.log
@@ -44,6 +46,7 @@ class Routing_DTM_Self(RoutingBase):
         self.core_weight_map = {}    # {dpid: int} Layer 1 核心層：最短 hop flow 貢獻
         self._wmap_ready = False     # _ensure_weight_map 是否已完成初始化
         self.sw_count = {}           # {dpid: int} 非NS active flow 使用的 switch 計數，隨 add/remove_active_flow 連動
+        self.all_sw_count = {}       # {dpid: int} 所有 active flow（含 NS）使用的 switch 計數
         self._overload_links = frozenset()  # monitor 每秒更新一次的 OVERLOAD/DANGER link 集合
         self.待檢查路徑 = set()      # {(host_a, host_b)}，防止同一 flow 重複進入 cascade
         self._cascade_time_total = 0.0
@@ -201,6 +204,57 @@ class Routing_DTM_Self(RoutingBase):
 
         return None
 
+    def _run_phase1(self, host_a, host_b, active_sw, remove_path):
+        """以給定的 active_sw 執行一次 Phase 1 篩選。
+        回傳 (candidates, best_hop, best_inactive)。
+        - candidates: 路徑 list（均滿足 best_inactive 與 best_hop）
+        - best_hop: candidates 的共同 hop 數
+        - best_inactive: 路徑中不在 active_sw 的 switch 數（clean_zero 時為 0）
+        若無任何可用路徑，回傳 (None, None, None)。
+        """
+        # 主路（clean_zero）：找最短 hop 群中 inactive=0 的路徑
+        for hop in self.k_short_hop_keys[(host_a, host_b)]:
+            clean_zero = []
+            for path, links in self.k_short_paths_by_hop[(host_a, host_b)][hop]:
+                if remove_path and path == remove_path:
+                    continue
+                if any(link in self._overload_links for link in links):
+                    continue
+                if all(sw in active_sw for sw in path):
+                    clean_zero.append(path)
+            if clean_zero:
+                return clean_zero, hop, 0
+
+        # Fallback：全量掃描，取 (inactive 最少, hop 最短) 的路徑集
+        valid_paths = []
+        fallback_paths = []
+        for hop_key in self.k_short_hop_keys[(host_a, host_b)]:
+            for path, links in self.k_short_paths_by_hop[(host_a, host_b)][hop_key]:
+                if remove_path and path == remove_path:
+                    continue
+                has_overload = any(link in self._overload_links for link in links)
+                inactive_counter = sum(1 for sw in path if sw not in active_sw)
+                tup = (inactive_counter, len(path), path)
+                if not has_overload:
+                    valid_paths.append(tup)
+                fallback_paths.append(tup)
+        if not valid_paths:
+            valid_paths = fallback_paths
+        if not valid_paths:
+            return None, None, None
+        best_inactive = min(v[0] for v in valid_paths)
+        best_hop = None
+        candidates = []
+        for inactive, hop, path in valid_paths:
+            if inactive != best_inactive:
+                continue
+            if best_hop is None or hop < best_hop:
+                best_hop = hop
+                candidates = [path]
+            elif hop == best_hop:
+                candidates.append(path)
+        return candidates, best_hop, best_inactive
+
     def _compute_path(self, host_a, host_b, remove_path=None, prefer_current=None,
                       exclude_path=None):
         """兩階段選路：
@@ -214,60 +268,39 @@ class Routing_DTM_Self(RoutingBase):
             print(f"[DTM-Self] 沒有 dist 資料: {host_a} -> {host_b}")
             return None
 
+        # ── Layer 0：建立「已點亮 switch」集合 ───────────────────────────────
+        # sw_count 只計入「最短 hop flow」使用的 switch（NS flow 不計）。
+        # 因此 shortest_active_sw 的語意是：
+        #   「目前至少被一條最短 hop flow 點亮、無需額外喚醒的 switch 集合」
+        #
+        # 注意：未來若建立涵蓋所有 flow（含 NS）的 active_switches，
+        #   兩者會同時存在。Layer 0 目前使用 shortest_active_sw。
+        #
+        # exclude_path 用於 cascade 重算：將舊路徑的貢獻暫時扣除，
+        # 避免自己的 sw_count 影響自己的重選結果。
         if exclude_path:
             excl = set(exclude_path)
-            active_switches = {sw for sw, c in self.sw_count.items()
-                               if c - (1 if sw in excl else 0) > 0}
+            shortest_active_sw = {sw for sw, c in self.sw_count.items()
+                                  if c - (1 if sw in excl else 0) > 0}
+            active_sw = {sw for sw, c in self.all_sw_count.items()
+                         if c - (1 if sw in excl else 0) > 0}
         else:
-            active_switches = {sw for sw, c in self.sw_count.items() if c > 0}
+            shortest_active_sw = {sw for sw, c in self.sw_count.items() if c > 0}
+            active_sw = {sw for sw, c in self.all_sw_count.items() if c > 0}
+        # active_sw：所有 active flow（含 NS）點亮的 switch 集合，未來 Layer 0 可切換使用
+        # ─────────────────────────────────────────────────────────────────────
 
         global_min_hop = self._global_min_hop[(host_a, host_b)]
 
-        # Phase 1 快速路徑：按 hop 群從小到大，找第一個有 inactive=0 乾淨路徑的群
-        # 語意：優先不喚醒新 switch，即使路徑較長
-        candidates = None
-        best_hop = None
-        for hop in self.k_short_hop_keys[(host_a, host_b)]:
-            clean_zero = []
-            for path, links in self.k_short_paths_by_hop[(host_a, host_b)][hop]:
-                if remove_path and path == remove_path:
-                    continue
-                if any(link in self._overload_links for link in links):
-                    continue
-                if all(sw in active_switches for sw in path):
-                    clean_zero.append(path)
-            if clean_zero:
-                candidates = clean_zero
-                best_hop = hop
-                break
+        # ── Phase 1（Layer 0 應用）：以「是否需要喚醒新 switch」為第一優先 ──
+        # 使用 shortest_active_sw（只計最短 hop flow 點亮的 switch）
+        # active_sw（所有 flow）已建立備用，供未來實驗使用
+        candidates, best_hop, _ = self._run_phase1(
+            host_a, host_b, shortest_active_sw, remove_path)
 
         if candidates is None:
-            # Fallback：全量掃描，找 best_inactive（無 inactive=0 路徑時，例如冷啟動）
-            valid_paths = []
-            fallback_paths = []
-            for hop_key in self.k_short_hop_keys[(host_a, host_b)]:
-                for path, links in self.k_short_paths_by_hop[(host_a, host_b)][hop_key]:
-                    if remove_path and path == remove_path:
-                        continue
-                    has_overload = any(link in self._overload_links for link in links)
-                    inactive_counter = sum(1 for sw in path if sw not in active_switches)
-                    tup = (inactive_counter, len(path), path)
-                    if not has_overload:
-                        valid_paths.append(tup)
-                    fallback_paths.append(tup)
-            if not valid_paths:
-                valid_paths = fallback_paths
-            if not valid_paths:
-                return None
-            best_inactive = min(v[0] for v in valid_paths)
-            for inactive, hop, path in valid_paths:
-                if inactive != best_inactive:
-                    continue
-                if best_hop is None or hop < best_hop:
-                    best_hop = hop
-                    candidates = [path]
-                elif hop == best_hop:
-                    candidates.append(path)
+            return None
+        # ─────────────────────────────────────────────────────────────────────
 
         if best_hop > global_min_hop:
             # NS 分支：Layer 2 唯讀評分，選後才 +1 Layer 2（不動 Layer 1）
@@ -282,11 +315,16 @@ class Routing_DTM_Self(RoutingBase):
                 print(f"[NonShortest] 新增: {host_a} -> {host_b}, hop={best_hop}, 路徑: {selected}")
                 return selected
 
-            scores = [(sum(self.ns_weight_map.get(sw, 0) for sw in p), p) for p in candidates]
-            best_weight = max(s for s, _ in scores)
-            tied = [p for s, p in scores if s == best_weight]
+            scores1 = [(sum(self.core_weight_map.get(sw, 0) for sw in p), p) for p in candidates]
+            best_weight1 = max(s for s, _ in scores1)
+            tied = [p for s, p in scores1 if s == best_weight1]
 
-            if len(tied) > 1:
+            if ENABLE_LAYER2 and len(tied) > 1:
+                scores = [(sum(self.ns_weight_map.get(sw, 0) for sw in p), p) for p in tied]
+                best_weight = max(s for s, _ in scores)
+                tied = [p for s, p in scores if s == best_weight]
+
+            if ENABLE_LAYER3 and len(tied) > 1:
                 scores0 = [(sum(self.base_weight_map.get(sw, 0) for sw in p), p) for p in tied]
                 best_weight0 = max(s for s, _ in scores0)
                 tied = [p for s, p in scores0 if s == best_weight0]
@@ -314,12 +352,12 @@ class Routing_DTM_Self(RoutingBase):
         best_weight = max(s for s, _ in scores)
         tied = [p for s, p in scores if s == best_weight]
 
-        if len(tied) > 1:
+        if ENABLE_LAYER2 and len(tied) > 1:
             scores2 = [(sum(self.ns_weight_map.get(sw, 0) for sw in p), p) for p in tied]
             best_weight2 = max(s for s, _ in scores2)
             tied = [p for s, p in scores2 if s == best_weight2]
 
-        if len(tied) > 1:
+        if ENABLE_LAYER3 and len(tied) > 1:
             scores0 = [(sum(self.base_weight_map.get(sw, 0) for sw in p), p) for p in tied]
             best_weight0 = max(s for s, _ in scores0)
             tied = [p for s, p in scores0 if s == best_weight0]
@@ -340,6 +378,8 @@ class Routing_DTM_Self(RoutingBase):
             if (host_a, host_b) not in self.非最短hop清單:
                 for sw in path:
                     self.sw_count[sw] = self.sw_count.get(sw, 0) + 1
+            for sw in path:
+                self.all_sw_count[sw] = self.all_sw_count.get(sw, 0) + 1
             self._log_snapshot()
             return path
         return None
@@ -357,6 +397,8 @@ class Routing_DTM_Self(RoutingBase):
             self._decrement_weight(host_a, host_b, removed_path)  # Layer 1 -1
             for sw in removed_path:
                 self.sw_count[sw] = max(0, self.sw_count.get(sw, 0) - 1)
+        for sw in removed_path:
+            self.all_sw_count[sw] = max(0, self.all_sw_count.get(sw, 0) - 1)
         self._log_snapshot()
         self.待檢查路徑.clear()
         self._cascade(host_a, host_b, removed_path)
@@ -443,6 +485,8 @@ class Routing_DTM_Self(RoutingBase):
             if not is_ns:
                 for sw in current_path:
                     self.sw_count[sw] = max(0, self.sw_count.get(sw, 0) - 1)
+            for sw in current_path:
+                self.all_sw_count[sw] = max(0, self.all_sw_count.get(sw, 0) - 1)
 
             is_now_ns = (fa, fb) in self.非最短hop清單
             if is_now_ns:
@@ -455,6 +499,8 @@ class Routing_DTM_Self(RoutingBase):
             if not is_now_ns:
                 for sw in new_path:
                     self.sw_count[sw] = self.sw_count.get(sw, 0) + 1
+            for sw in new_path:
+                self.all_sw_count[sw] = self.all_sw_count.get(sw, 0) + 1
             if SNAPSHOT_PER_REROUTE:
                 self._log_snapshot()
 
