@@ -38,7 +38,7 @@ class Routing_DTM_Dijkstra(RoutingBase):
         self.shortest_selected_count = 0
         self.total_path_selections   = 0
         self.k_short_paths = {}
-        self.load_k_short_paths('data/k_short.txt')
+        self.load_k_short_paths(getattr(app, 'k_short_path', 'data/k_short.txt'))
 
     # =========================================================
     # 核心：Dijkstra（以 link 狀態為權重）

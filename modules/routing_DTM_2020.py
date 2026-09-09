@@ -80,7 +80,6 @@ def 定期偵測 link 狀態:
 
 '''
 
-from ryu.lib import hub
 from .link_status import Link_Status
 from .routing_base import RoutingBase
 import random
@@ -93,7 +92,7 @@ class Routing_DTM_2020(RoutingBase):
         # 直接從 app 取得 link_status 模組的引用，避免重複初始化
         self.k_short_paths = {}
 
-        self.load_k_short_paths('data/k_short.txt')
+        self.load_k_short_paths(getattr(app, 'k_short_path', 'data/k_short.txt'))
     # ===== 模組初始化 =====
     # 啟動時讀取 k_short.txt
 

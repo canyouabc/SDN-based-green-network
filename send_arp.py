@@ -1,3 +1,4 @@
+import os
 import time
 from mininet.cli import CLI
 
@@ -14,11 +15,11 @@ def send_arp_all(net):
         for dst in hosts:
             if src == dst:
                 continue
-            
+
             dst_ip = dst.IP()
             iface  = src.defaultIntf().name
             src.cmd(f'arping -c 1 -i {iface} {dst_ip} > /dev/null 2>&1 &')
-            
+
             count += 1
             print(f"[{count}/{total}] {src.name} -> {dst.name} ({dst_ip})")
             if count % 80 == 0:
@@ -27,6 +28,10 @@ def send_arp_all(net):
     print("[*] 等待所有 ARP 發送完成...")
 
     print("[*] ARP 全部發送完畢！")
+
+    # 寫出旗標檔，讓 DTM.py 的 dynamic_Dijkstra_test（auto_k_short 模式）知道
+    # ARP 真的送完了，才開始輪詢 host_macs 穩定度，避免在這之前提早觸發計算
+    open('arp_done.flag', 'w').close()
 
 
 class MyCLI(CLI):

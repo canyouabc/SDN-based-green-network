@@ -58,7 +58,8 @@ ENABLE_BANDWIDTH_MEASUREMENT = True
 # 選項: 'auto_k_short'
 # 選項: 'dijkstra' (Routing_DTM_Dijkstra) — 同 2020 邏輯，不依賴 k_short.txt
 # 選項: 'self' (Routing_DTM_Self) — 2020 延伸，加入 active flow 重疊度排序
-ROUTING_ALGORITHM = 'self'
+# 選項: 'sorted' (Routing_DTM_Sorted) — 全 flow 依 hop 排序後逐一選路
+ROUTING_ALGORITHM = 'sorted'
 # ======================================================
 
 # ==================== Reroute 觸發條件設定 ====================
@@ -120,6 +121,9 @@ if ENABLE_ROUTING:
     elif ROUTING_ALGORITHM == 'self':
         from modules.routing_DTM_self import Routing_DTM_Self as routing_module
         print("*** 使用 DTM-Self 演算法（2020 延伸，active flow 重疊度排序）")
+    elif ROUTING_ALGORITHM == 'sorted':
+        from modules.routing_DTM_sorted import Routing_DTM_Sorted as routing_module
+        print("*** 使用 DTM-Sorted 演算法（全 flow 依 hop 排序後逐一選路）")
     else:
         print("*** ROUTING_ALGORITHM 變數設定錯誤，請檢查程式碼")
 
@@ -256,16 +260,17 @@ class ProjectController(app_manager.RyuApp):
         self.flow_stats_monitor_thread = hub.spawn(self._flow_stats_monitor)
         if ROUTING_ALGORITHM in ('2020', 'dijkstra'):
             self.dtm_monitor_thread = hub.spawn(self._monitor_DTM)
-        if ROUTING_ALGORITHM == 'self':
+        if ROUTING_ALGORITHM in ('self', 'sorted'):
             self.energy_monitor_thread = hub.spawn(self._monitor_energy)
             
 
     # =========================================
     # Active Flow 管理
     # =========================================
-    def add_active_flow(self, host_a, host_b, path, is_reroute=False):
+    def add_active_flow(self, host_a, host_b, path, is_reroute=False, priority=None):
         self.active_flows[(host_a, host_b)] = {
             'path': path,
+            'priority': priority,
             'install_time': time.time()
         }
         if not is_reroute:
@@ -344,7 +349,7 @@ class ProjectController(app_manager.RyuApp):
         self.install_flows_for_path(new_pwp, host_a, host_b, priority=new_priority, idle_timeout=5)
         # 舊路徑不主動刪，等 idle_timeout=5 自然過期
         self.remove_active_flow(host_a, host_b, path)
-        self.add_active_flow(host_a, host_b, new_path)
+        self.add_active_flow(host_a, host_b, new_path, priority=new_priority)
         print(f"[Reroute:{reason}] {host_a}->{host_b}: {path} → {new_path}")
         if reason == "LINK":
             self.reroute_count_link += 1
@@ -461,14 +466,17 @@ class ProjectController(app_manager.RyuApp):
                 active_links.add((path[i], path[i+1]))
         
         # 以下跟原本一樣
+        # initial_link_energy 裡每條實體連線存了 (u,v) 跟 (v,u) 兩筆（方便雙向查詢），
+        # 加總前要先去重成唯一的無向連線 (min(u,v), max(u,v))，否則每條連線的能耗會被算兩次。
+        unique_links = {(min(u, v), max(u, v)) for (u, v) in self.initial_link_energy}
         total_energy = sum(self.initial_switch_energy.values()) + \
-                    sum(self.initial_link_energy.get((min(u,v), max(u,v)), 0)
-                        for (u,v) in self.initial_link_energy)
+                    sum(self.initial_link_energy[link] for link in unique_links)
 
         used_sw_energy   = sum(self.initial_switch_energy.get(n, 0)
                             for n in active_switches)
-        used_link_energy = sum(self.initial_link_energy.get((min(u,v), max(u,v)), 0)
-                            for (u,v) in active_links)
+        unique_active_links = {(min(u, v), max(u, v)) for (u, v) in active_links}
+        used_link_energy = sum(self.initial_link_energy.get(link, 0)
+                            for link in unique_active_links)
         current_energy   = used_sw_energy + used_link_energy
 
         saving  = total_energy - current_energy
@@ -686,7 +694,7 @@ class ProjectController(app_manager.RyuApp):
                         src_dpid, dst_dpid = phy_link
                         self.link_status.update_link_status(src_dpid, dst_dpid, 0)
 
-                if ROUTING_ALGORITHM == 'self' and self.routing_module:
+                if ROUTING_ALGORITHM in ('self', 'sorted') and self.routing_module:
                     self.routing_module.refresh_link_cache()
                 
                 # ← 在每輪結束時，列印 link 狀態統計
@@ -729,11 +737,32 @@ class ProjectController(app_manager.RyuApp):
             return
         
         if ROUTING_ALGORITHM == 'auto_k_short':
-            print("*** k-shortest paths 計算模組已啟用 - 路由計算將在 packet_in 事件時觸發")
-            hub.sleep(5)  # 等待拓撲穩定
-            print("\n*** 開始計算 K-Shortest Paths...")
+            print("*** k-shortest paths 計算模組已啟用 - 等待 sendarp 完成...")
+            # 清掉可能殘留的舊旗標（例如上一輪實驗中途中斷），避免這次一啟動
+            # 就誤判成「sendarp 已完成」而跳過等待
+            if os.path.exists('arp_done.flag'):
+                os.remove('arp_done.flag')
+            # 先等 send_arp_all() 送完 ARP 後寫出的旗標檔，避免在使用者於 Mininet
+            # CLI 真正打 sendarp 之前，host_macs 就因為背景流量短暫持平而誤判穩定
+            while not os.path.exists('arp_done.flag'):
+                hub.sleep(1)
+            os.remove('arp_done.flag')
+            print("*** 偵測到 sendarp 已完成，開始等待 host_macs 穩定...")
+            # 輪詢 host_macs 數量直到穩定（連續 3 次不再增加）才開始算，
+            # sendarp 送出後 packet-in 仍需時間陸續抵達 controller，這裡當作最後一道緩衝
+            last_count = -1
+            stable_ticks = 0
+            while stable_ticks < 3:
+                hub.sleep(2)
+                cur_count = len(self.host_macs)
+                if cur_count > 0 and cur_count == last_count:
+                    stable_ticks += 1
+                else:
+                    stable_ticks = 0
+                last_count = cur_count
+            print(f"\n*** host_macs 已穩定（共 {last_count} 個 host），開始計算 K-Shortest Paths...")
             self.routing_module.compute_all_k_shortest_paths_once(
-                k=500,
+                k=16,
                 output_filepath='data/k_short.txt',
                 host_range=(1, 16)
             )
@@ -1090,7 +1119,7 @@ class ProjectController(app_manager.RyuApp):
                 )
             except Exception as e:
                 self.logger.error(f"[UNKNOWN_TCP] 路由計算失敗: {e}")
-        elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self'):
+        elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self', 'sorted'):
             # 2020 / dijkstra 版本的路由計算邏輯
             try:
                 parser = datapath.ofproto_parser
@@ -1120,6 +1149,8 @@ class ProjectController(app_manager.RyuApp):
                         if path:
                             _prio = self._get_next_flow_priority(src_mac, dst_mac)
                             self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
+                            if (src_mac, dst_mac) in self.active_flows:
+                                self.active_flows[(src_mac, dst_mac)]['priority'] = _prio
                             _first_sw, _first_in, _first_out = path[0]
                             print(f"[{ROUTING_ALGORITHM} Routing TCP] {src_mac} -> {dst_mac}: path {switch_path} | sw={_first_sw} in_port={_first_in} out_port={_first_out} priority={_prio}")
                         else:
@@ -1189,7 +1220,7 @@ class ProjectController(app_manager.RyuApp):
                 )
             except Exception as e:
                 self.logger.error(f"[UNKNOWN_UDP] 路由計算失敗: {e}")
-        elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self'):
+        elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self', 'sorted'):
             # 2020 / dijkstra 版本的路由計算邏輯
             try:
                 parser = datapath.ofproto_parser
@@ -1220,6 +1251,8 @@ class ProjectController(app_manager.RyuApp):
                             if path:
                                 _prio = self._get_next_flow_priority(src_mac, dst_mac)
                                 self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
+                                if (src_mac, dst_mac) in self.active_flows:
+                                    self.active_flows[(src_mac, dst_mac)]['priority'] = _prio
                                 _first_sw, _first_in, _first_out = path[0]
                                 print(f"[{ROUTING_ALGORITHM} Routing UDP] {src_mac} -> {dst_mac}: path {switch_path} | sw={_first_sw} in_port={_first_in} out_port={_first_out} priority={_prio}")
                             else:
@@ -1270,7 +1303,7 @@ class ProjectController(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
     def flow_removed_handler(self, ev):
-        if ROUTING_ALGORITHM not in ('2020', 'dijkstra', 'self'):
+        if ROUTING_ALGORITHM not in ('2020', 'dijkstra', 'self', 'sorted'):
             return
 
         msg = ev.msg
@@ -1288,13 +1321,20 @@ class ProjectController(app_manager.RyuApp):
             if src_mac and dst_mac:
                 removed_path = (self.active_flows.get((src_mac, dst_mac)) or {}).get('path')
                 self.remove_active_flow(src_mac, dst_mac, hard_timeout=msg.hard_timeout)
-                if ROUTING_ALGORITHM == 'self' and removed_path and self.routing_module:
+                if ROUTING_ALGORITHM in ('self', 'sorted') and removed_path and self.routing_module:
                     self.routing_module.on_flow_removed(src_mac, dst_mac, removed_path)
         elif msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
             if src_mac and dst_mac:
-                removed_path = (self.active_flows.get((src_mac, dst_mac)) or {}).get('path')
+                current_entry = self.active_flows.get((src_mac, dst_mac))
+                if current_entry is None:
+                    return
+                current_priority = current_entry.get('priority')
+                if current_priority is not None and msg.priority < current_priority:
+                    # 舊路徑的 rule 自然過期（cascade 後留下的舊 rule），忽略
+                    return
+                removed_path = current_entry.get('path')
                 self.remove_active_flow(src_mac, dst_mac)
-                if ROUTING_ALGORITHM == 'self' and removed_path and self.routing_module:
+                if ROUTING_ALGORITHM in ('self', 'sorted') and removed_path and self.routing_module:
                     self.routing_module.on_flow_removed(src_mac, dst_mac, removed_path)
                     
 		 

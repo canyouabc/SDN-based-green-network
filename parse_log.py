@@ -4,9 +4,10 @@ import csv
 def parse_log(log_path, csv_path):
     batch_id = None
     rows = []
-    history = {}  # {batch_id: {'avg_hops': float, 'total_flows': int}}
+    history = {}       # {batch_id: {'avg_hops': float, 'total_flows': int}}
+    danger_count = {}  # {batch_id: [DANGER_UNAVOIDABLE] 出現次數}
 
-    with open(log_path, "r") as f:
+    with open(log_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
 
@@ -14,6 +15,11 @@ def parse_log(log_path, csv_path):
             m = re.match(r"=== BATCH (\d+) (START|END)(?:\s+[\d.]+)? ===", line)
             if m:
                 batch_id = int(m.group(1))
+                continue
+
+            # 偵測 [DANGER_UNAVOIDABLE]
+            if line.startswith("[DANGER_UNAVOIDABLE]") and batch_id is not None:
+                danger_count[batch_id] = danger_count.get(batch_id, 0) + 1
                 continue
 
             # 偵測 ENERGY 行
@@ -31,6 +37,7 @@ def parse_log(log_path, csv_path):
                     "reroute_low_share": None,
                     "reroute_high_load": None,
                     "shortest_ratio":    None,
+                    "danger_unavoidable_count": None,
                 })
                 continue
 
@@ -64,17 +71,19 @@ def parse_log(log_path, csv_path):
             row["reroute_low_share"] = h["reroute_low_share"]
             row["reroute_high_load"] = h["reroute_high_load"]
             row["shortest_ratio"]    = h["shortest_ratio"]
+        row["danger_unavoidable_count"] = danger_count.get(row["batch"], 0)
 
-    with open(csv_path, "w", newline="") as f:
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
             "batch", "timestamp", "saving_W", "percent",
             "history_avg_hops", "total_flows",
             "reroute_link", "reroute_high_hop", "reroute_low_share", "reroute_high_load",
-            "shortest_ratio",
+            "shortest_ratio", "danger_unavoidable_count",
         ])
         writer.writeheader()
         writer.writerows(rows)
 
     print(f"共 {len(rows)} 筆，寫入 {csv_path}")
 
-parse_log("experiment.log", "experiment.csv")
+if __name__ == "__main__":
+    parse_log("experiment.log", "experiment.csv")

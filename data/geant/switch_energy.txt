@@ -1,0 +1,23 @@
+# dpid  type   energy(W)
+1	GEANT	146	# at1.at
+2	GEANT	146	# be1.be
+3	GEANT	146	# ch1.ch
+4	GEANT	146	# cz1.cz
+5	GEANT	146	# de1.de
+6	GEANT	146	# es1.es
+7	GEANT	146	# fr1.fr
+8	GEANT	146	# gr1.gr
+9	GEANT	146	# hr1.hr
+10	GEANT	146	# hu1.hu
+11	GEANT	146	# ie1.ie
+12	GEANT	146	# il1.il
+13	GEANT	146	# it1.it
+14	GEANT	146	# lu1.lu
+15	GEANT	146	# nl1.nl
+16	GEANT	146	# ny1.ny
+17	GEANT	146	# pl1.pl
+18	GEANT	146	# pt1.pt
+19	GEANT	146	# se1.se
+20	GEANT	146	# si1.si
+21	GEANT	146	# sk1.sk
+22	GEANT	146	# uk1.uk

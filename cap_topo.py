@@ -21,15 +21,18 @@ from send_arp import send_arp_all
 # [WAN]  s13,s14 <-> s19,s20,s21  (w1~w3)
 #        s15,s16 <-> s22,s23,s24  (w4~w6)
 #
-# [Access]  s5, s6  <-> s25~s28  → h1~h4
-#           s7, s8  <-> s29~s32  → h5~h8
-#           s9, s10 <-> s33~s36  → h9~h12
-#           s11,s12 <-> s37~s40  → h13~h16
-#           s17,s18 <-> s41~s45  → h17~h21
+# [Access]  s5, s6  <-> s25~s28
+#           s7, s8  <-> s29~s32
+#           s9, s10 <-> s33~s36
+#           s11,s12 <-> s37~s40
+#           s17,s18 <-> s41~s45
 #
-# [WAN Host]  s19~s24 → h22~h27
+# [WAN Host]  s19~s24
 #
-# 共 45 個 switch，27 個 host
+# Access(21 台) / WAN(6 台) 每台各接 HOSTS_PER_EDGE(2) 個 host，
+# h1~h42 為 Access 側、h43~h54 為 WAN 側
+#
+# 共 45 個 switch，54 個 host
 # =========================================
 
 
@@ -59,11 +62,13 @@ def topology():
     access = [net.addSwitch(f's{i}') for i in range(25, 46)]  # s25~s45 (21)
 
     # =========================================
-    # Hosts  h1~h27
+    # Hosts  Access(21)/WAN(6) 每台各接 HOSTS_PER_EDGE 個 host
     # =========================================
+    HOSTS_PER_EDGE = 2
+    num_hosts = (len(access) + len(wan)) * HOSTS_PER_EDGE   # 27*2 = 54
     hosts = [
         net.addHost(f'h{i}', ip=f'10.0.0.{i}/24', mac=f'00:00:00:00:00:{i:02x}')
-        for i in range(1, 28)
+        for i in range(1, num_hosts + 1)
     ]
 
     # =========================================
@@ -122,16 +127,20 @@ def topology():
         net.addLink(dist[13], a)
 
     # =========================================
-    # Access <-> Host  (a1~a21 → h1~h21)
+    # Access <-> Host  (a1~a21，各接 HOSTS_PER_EDGE 個 → h1~h42)
     # =========================================
-    for a, h in zip(access, hosts[:21]):
-        net.addLink(a, h)
+    access_host_count = len(access) * HOSTS_PER_EDGE
+    for idx, a in enumerate(access):
+        for h in hosts[idx * HOSTS_PER_EDGE : (idx + 1) * HOSTS_PER_EDGE]:
+            net.addLink(a, h)
 
     # =========================================
-    # WAN <-> Host  (w1~w6 → h22~h27)
+    # WAN <-> Host  (w1~w6，各接 HOSTS_PER_EDGE 個 → h43~h54)
     # =========================================
-    for w, h in zip(wan, hosts[21:]):
-        net.addLink(w, h)
+    for idx, w in enumerate(wan):
+        start = access_host_count + idx * HOSTS_PER_EDGE
+        for h in hosts[start : start + HOSTS_PER_EDGE]:
+            net.addLink(w, h)
 
     # =========================================
     # 啟動

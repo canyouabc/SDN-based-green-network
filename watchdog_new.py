@@ -6,13 +6,43 @@ import threading
 import os
 import json
 import argparse
+import re
 
 RYU_SESSION = "ryu"
 MN_SESSION  = "mininet"
 
+# 部分演算法需要額外等待網路完全穩定後再送流量（秒）
+EXTRA_WAIT = {
+    'sorted': 3,
+}
+
+def get_routing_algorithm():
+    """從 DTM.py 讀取目前設定的 ROUTING_ALGORITHM"""
+    try:
+        with open("DTM.py", "r") as f:
+            content = f.read()
+        m = re.search(r"^ROUTING_ALGORITHM\s*=\s*['\"](\w+)['\"]", content, re.MULTILINE)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return None
+
 GENERATE_ANIMATION = True  # 是否產出動畫 HTML
 
-HOSTS = [f"h{i}" for i in range(1, 28)]
+# 拓撲名稱 → (topo 腳本檔名, host 數)。host 數對應各 grid_topo_*.py 頂部的 N，
+# 邊界 switch 數為 4*(N-1)（N=2 時也符合這個公式）；cap 固定 27。
+TOPO_SCRIPTS = {
+    'grid':     ('grid_topo.py',      16),  # 5x5（舊預設）
+    'grid_2x2': ('grid_topo_2x2.py',   4),
+    'grid_3x3': ('grid_topo_3x3.py',   8),
+    'grid_4x4': ('grid_topo_4x4.py',  12),
+    'grid_6x6': ('grid_topo_6x6.py',  20),
+    'grid_7x7': ('grid_topo_7x7.py',  24),
+    'cap':      ('cap_topo.py',       27),
+}
+
+HOSTS = [f"h{i}" for i in range(1, 17)]  # 由 --topo 決定，見 __main__
 EXPERIMENT_DURATION = 150  # seconds
 FLOW_DURATION = 15         # seconds
 LAMBDA = 1 / 3             # Poisson rate (期望間隔 3s)
@@ -167,7 +197,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=str, default=None,
                         help="種子檔路徑，例如 seed_42.json；不指定則隨機產生")
+    parser.add_argument("--topo", default='grid', choices=list(TOPO_SCRIPTS.keys()),
+                        help="拓撲類型，決定要開哪個 topo 腳本、HOSTS 有幾台（預設 'grid'，5x5）")
     args = parser.parse_args()
+
+    topo_script, topo_host_count = TOPO_SCRIPTS[args.topo]
+    HOSTS = [f"h{i}" for i in range(1, topo_host_count + 1)]
+    print(f"[watchdog] 拓撲={args.topo}（{topo_script}，{topo_host_count} 台 host）")
 
     seed_data = None
     if args.seed:
@@ -179,9 +215,10 @@ if __name__ == "__main__":
         batches_plan = [{"batch_id": i} for i in range(1, 6)]
         print("[watchdog] 隨機模式，共 5 批")
 
-    os.makedirs("log", exist_ok=True)
     run_timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-    experiment_log = f"log/experiment-{run_timestamp}.log"
+    run_dir = f"log/real-{run_timestamp}"
+    os.makedirs(run_dir, exist_ok=True)
+    experiment_log = f"{run_dir}/experiment.log"
 
     for batch in batches_plan:
         batch_id = batch["batch_id"]
@@ -196,15 +233,14 @@ if __name__ == "__main__":
         with open("experiment.log", "a") as f:
             f.write(f"=== BATCH {batch_id} START ===\n")
 
-        timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
-        ryu_log = f"log/DTM-2026-{timestamp}.txt"
-        mn_log  = f"log/mininet-2026-{timestamp}.txt"
+        ryu_log = f"{run_dir}/DTM-b{batch_id}.txt"
+        mn_log  = f"{run_dir}/mininet-b{batch_id}.txt"
 
         print("[watchdog] 啟動 Ryu...")
         new_tmux(RYU_SESSION, "ryu-manager DTM.py --observe-links", ryu_log)
 
         print("[watchdog] 啟動 Mininet...")
-        new_tmux(MN_SESSION, "sudo python cap_topo.py", mn_log)
+        new_tmux(MN_SESSION, f"sudo python {topo_script}", mn_log)
 
         print("[watchdog] 等待 Mininet CLI 就緒...")
         wait_for_log(mn_log, "*** Starting CLI:", timeout=60)
@@ -224,6 +260,12 @@ if __name__ == "__main__":
         print("[watchdog] 等待 Ryu link status 就緒...")
         wait_for_log(ryu_log, "SN:", timeout=120)
 
+        algo = get_routing_algorithm()
+        extra = EXTRA_WAIT.get(algo, 0)
+        if extra > 0:
+            print(f"[watchdog] {algo} 模式：額外等待 {extra}s 讓網路穩定...")
+            time.sleep(extra)
+
         print(f"[watchdog] Batch {batch_id} 實驗開始（150s）...")
         if seed_data:
             run_experiment_from_seed(batch["flows"])
@@ -240,13 +282,13 @@ if __name__ == "__main__":
             except FileNotFoundError:
                 pass
 
-        activeflow_log = ryu_log.replace("DTM-", "activeflow-")
+        activeflow_log = f"{run_dir}/activeflow-b{batch_id}.txt"
         extract_activeflow_log(ryu_log, activeflow_log)
         print(f"[watchdog] ActiveFlow log 已整理至 {activeflow_log}")
 
         if GENERATE_ANIMATION:
-            anim_path = activeflow_log.replace("activeflow-", "anim-").replace(".txt", ".html")
-            anim_log  = anim_path.replace(".html", ".log")
+            anim_path = f"{run_dir}/anim-b{batch_id}.html"
+            anim_log  = f"{run_dir}/anim-b{batch_id}.log"
             with open(anim_log, "w") as flog:
                 subprocess.Popen(
                     ["python3", "animate_activeflow.py", activeflow_log,

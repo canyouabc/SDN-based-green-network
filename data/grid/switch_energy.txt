@@ -1,0 +1,26 @@
+# dpid  type   energy(W)
+1       Grid   146
+2       Grid   146
+3       Grid   146
+4       Grid   146
+5       Grid   146
+6       Grid   146
+7       Grid   146
+8       Grid   146
+9       Grid   146
+10      Grid   146
+11      Grid   146
+12      Grid   146
+13      Grid   146
+14      Grid   146
+15      Grid   146
+16      Grid   146
+17      Grid   146
+18      Grid   146
+19      Grid   146
+20      Grid   146
+21      Grid   146
+22      Grid   146
+23      Grid   146
+24      Grid   146
+25      Grid   146

@@ -1,0 +1,5 @@
+# dpid  type   energy(W)
+1       Grid   146
+2       Grid   146
+3       Grid   146
+4       Grid   146
