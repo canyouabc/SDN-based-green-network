@@ -200,17 +200,11 @@ class _SimFlowStats:
 class MockApp:
     """
     模擬 DTM.py ProjectController，供路由模組直接 import。
-    路由模組使用的介面：
-        app.link_status           Link_Status 物件
-        app.adjacency             {dpid: {neighbor: port}}
-        app.myswitches            [dpid, ...]
-        app.link_bw               {(u,v): Mbps}
-        app.host_macs             {mac: (dpid, port)}  ← dijkstra 才需要
-        app.active_flows          {(src,dst): {'path':..., 'install_time':...}}
-        app.add_active_flow()
-        app.remove_active_flow()
-        app.get_active_flows()
-        app.flow_stats
+
+    implements modules.routing_host.RoutingHost（完整成員清單與型別見該檔）。
+    額外提供 `_flow_sizes`（sim 專用合成流量大小）；不提供 RoutingHostDelay
+    的 link_delay / link_used_bw / get_link_delay_func → routing_2014 無法在 sim 跑。
+    改動這裡對 routing 模組露出的介面時，同步更新 modules/routing_host.py。
     """
 
     def __init__(self):

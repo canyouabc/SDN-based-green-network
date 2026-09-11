@@ -198,6 +198,49 @@
         15.88%，10 組沒有一組變差）。3:1、10-flow 情境下 `sorted_link` 的節能範圍
         （36.9%~40.4%）已經直接落在論文宣稱的 low-traffic 38~44% 區間內。
 
+- [ ] **系統性回顧進行中（2026-09-09 起）**：完整進度見 memory `dijkstra-systematic-review`。
+      已完成：散落舊檔清理（搬 `old/` 或刪除）、checkpoint commit + tag
+      `checkpoint/pre-routinghost-2026-09-09`（含一大批之前未 commit 的工作）、
+      `routing_DTM_2020.py` 移除未使用的 `from ryu.lib import hub` 死 import。
+      進行中：命名盤點（組 1 路由模組已盤完，組 2 量測模組／組 3 其餘待續）。
+      已完成 `RoutingHost` Protocol（`modules/routing_host.py`，明文化 Layer 0↔1 介面）：
+      Windows 3.14 + Mininet 3.8.10 靜態檢查都過，實際開 Mininet 跑一次待驗。
+      ⚠️ **`DTM.py` + 整個 `modules/` 必須維持 Python 3.8 相容**（Mininet VM 是 3.8.10，
+      不支援 `list[int]` 這種 PEP 585 寫法，要用 `typing.List`）；`sim.py` 例外（Windows 3.14）。
+
+- [ ] **上面「`routing_DTM_self.py` cascade 已知問題」那條已過期**：描述的是 commit `298fe06`
+      之前的遞迴版。現在 `_cascade` 是單道 pass、不遞迴，`_cascade_depth`／`_ns_only_mode`／
+      `CASCADE_ABORT`／`CASCADE_WARN` 都已移除（見 `docs/routing_DTM_self_optimizations.md`
+      第 12／13 條）。殘留的只是「每次 admit／timeout 觸發一輪 O(F) 全掃」的成本，非失控類 bug。
+
+- [ ] **死 import 殘留**：`routing_DTM_2020.py:83` 還有一個未使用的
+      `from .link_status import Link_Status`（該模組只用 `app.link_status`）；
+      `routing_2014.py:10` 有未使用的 `from ryu.lib import hub`（只在 Mininet 用，暫不影響）。
+
+---
+
+## 分層架構
+
+```
+Runner 層   watchdog_new / sweep_sorted / run_geant_seed / parse_log / matplotlib_DTM
+            （編排實驗、驅動下面某一個 Layer 0）
+Layer 0     DTM.py  |  sim.py（Simulator + MockApp）              ← 擇一
+            啟動時讀 ROUTING_ALGORITHM 只實例化「一個」Layer 1；
+            實例化「全部」Layer 2 模組；持有拓撲／鄰接／連線狀態
+Layer 1     routing_DTM_{2020,dijkstra,self,sorted,sorted_link}   ← 繼承 routing_base
+            routing_2014（+ pure_Dijkstra）、routing_auto_k_short  ← 特例，未繼承 RoutingBase
+            routing_base.py = 介面契約（抽象父類別），本身不執行任何邏輯
+Layer 2     link_status / bandwidth_measurement / flow_stats /
+            delay_detection / link_delay_measurement
+            （Layer 0 實例化，Layer 1 透過 self.x = app.x 借參照，不自己 new）
+```
+
+- **一次只有一個 Layer 1**：`ROUTING_ALGORITHM`（`DTM.py` 頂部常數）或 `--algorithm`（`sim.py`）決定，執行期不換。
+- **Layer 1 彼此不 import**：`dijkstra` 內的 `_find_kshort_path` 是複製 2020 的邏輯，不是 import。
+- **Layer 1 透過 `app`（Layer 0）取用 Layer 2**：全部是 `self.link_status = app.link_status` 這種借參照，沒有任何 routing module 自己實例化 Layer 2。
+- **`routing_2014` / `routing_auto_k_short` 沒繼承 `RoutingBase`**：介面不同（`calculate_and_install_path` ／ `compute_all_k_shortest_paths_once`），`DTM.py` 用 `if ROUTING_ALGORITHM == '...'` 特例處理。`auto_k_short` 是借用 routing 槽位在啟動時跑一次 k-short 產生器，不做路由。
+- **Layer 1 存取 Layer 0 的成員目前是「隱形契約」**（約 15 個 `app.*`）：`RoutingHost` Protocol（規劃中的 `modules/routing_host.py`）要把它明文化。已知兩處分歧：`adjacency[u][v]` 在 `DTM.py` 是 out_port、在 `MockApp` 是鄰居 dpid；`install_flows_for_path` 的 `priority` 在 `DTM.py` 必填、`MockApp` 有預設值。
+
 ---
 
 ## 專案目的

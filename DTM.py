@@ -141,6 +141,8 @@ from modules.flow_stats import FlowStats
 
 
 class ProjectController(app_manager.RyuApp):
+    # implements modules.routing_host.RoutingHost + RoutingHostDelay（供 '2014'）
+    # 改動 self.app 對 routing 模組露出的介面時，同步更新 modules/routing_host.py
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     def __init__(self, *args, **kwargs):
         super(ProjectController, self).__init__(*args, **kwargs)
