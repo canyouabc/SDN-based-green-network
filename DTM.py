@@ -133,6 +133,7 @@ if ENABLE_BANDWIDTH_MEASUREMENT:
     from modules.link_status import Link_Status
 
 from modules.flow_stats import FlowStats
+from modules.host_discovery import HostDiscovery
 
 
    
@@ -231,6 +232,7 @@ class ProjectController(app_manager.RyuApp):
             self.link_status = None
 
         self.flow_stats = FlowStats(self)
+        self.host_discovery = HostDiscovery(self)
 
         if ENABLE_ROUTING:
             self.routing_module = routing_module(self)
@@ -782,6 +784,11 @@ class ProjectController(app_manager.RyuApp):
                 and not self._link_ready_logged):
             self._link_ready_logged = True
             print(f"[LINK_READY] 共 {sw_count} 個 switch，{link_count} 條 link")
+            # 2026-09-11：曾因 ARP_REPLY 落入 OFPP_FLOOD（無防迴圈的網狀
+            # 拓撲）造成永久性廣播風暴，根因已修（見上方 ARP 封包處理
+            # 段落，return 移出 REQUEST 判斷之外）。修好後完整實測通過
+            # （cap_topo.py，全程不打 sendarp，iperf 直接成功），正式啟用。
+            self.host_discovery.discover()
         self._last_sw_count   = sw_count
         self._last_link_count = link_count
 
@@ -1416,8 +1423,15 @@ class ProjectController(app_manager.RyuApp):
         if arp_pkt is not None:
           if arp_pkt.opcode == arp.ARP_REQUEST:
             self._handle_arp_request(datapath, in_port, arp_pkt)
-            return  
-      
+          # return 移出 REQUEST 判斷之外：ARP_REPLY（opcode != REQUEST）
+          # 原本沒有 return，會落到本函式最後的 OFPP_FLOOD fallback，
+          # 在有迴圈的拓撲（cap_topo.py 的 core mesh）會造成無防迴圈的
+          # 永久廣播風暴（2026-09-11 實測，見 modules/host_discovery.py
+          # 開頭註解）。這個架構下 controller 是純代理 ARP，正常運作時
+          # host 本來就看不到彼此的原始 ARP 封包，ARP_REPLY 幾乎不會
+          # 發生，補上 return 不影響任何現有功能。
+          return
+
       # ← 檢測 TCP/UDP/ICMP 等傳輸層協議
       if eth.ethertype == ether_types.ETH_TYPE_IP:
         ipv4_pkt = pkt.get_protocol(ipv4.ipv4)
