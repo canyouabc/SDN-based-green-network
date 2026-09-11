@@ -134,6 +134,7 @@ if ENABLE_BANDWIDTH_MEASUREMENT:
 
 from modules.flow_stats import FlowStats
 from modules.host_discovery import HostDiscovery
+from modules.routing_requirements import check_dependencies
 
 
    
@@ -236,6 +237,7 @@ class ProjectController(app_manager.RyuApp):
 
         if ENABLE_ROUTING:
             self.routing_module = routing_module(self)
+            check_dependencies(self, ROUTING_ALGORITHM)
         else:
             self.routing_module = None
 
