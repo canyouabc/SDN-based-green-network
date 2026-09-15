@@ -132,6 +132,9 @@ if ENABLE_BANDWIDTH_MEASUREMENT:
     from modules.bandwidth_measurement import Bandwidth_Measurement
     from modules.link_status import Link_Status
 
+from modules.arp_handler import ArpHandler
+from modules.energy_data import EnergyData
+from modules.flow_registry import FlowRegistry
 from modules.flow_stats import FlowStats
 from modules.host_discovery import HostDiscovery
 from modules.routing_requirements import check_dependencies
@@ -156,7 +159,6 @@ class ProjectController(app_manager.RyuApp):
         self.ipv6_count = 1
         self.lldp_count = 1
         self.vlan_count = 1
-        self.host_list =  {}
         self.link_delay = {}
         self.total_switch_lldp = 0
         self.total_switch_echo = 0
@@ -171,8 +173,7 @@ class ProjectController(app_manager.RyuApp):
         self._last_sw_count     = 0
         self._last_link_count   = 0
         self._flow_cookie_counter = 0
-        self._flow_priority = {}     # {(src_mac, dst_mac): {'priority': int, 'last_time': float}}
-        
+
         # ← TCP 節流属性
         self.tcp_pkt_counter = {}        # (src, dst) → 計數
         self.tcp_last_seen = {}          # (src, dst) → 最後一次看到的時間
@@ -192,23 +193,20 @@ class ProjectController(app_manager.RyuApp):
         self.adjacency = defaultdict(lambda:defaultdict(lambda:None))
         # ==================== 能耗数据 ====================
 
-        self.route_list = {}               
-        self.switch_energy = self.load_switch_energy('data/switch_energy.txt')
-        # link_energy 與 link_bw 的 key 是 (src_dpid, dst_dpid)，value 分別是能耗與帯寶
-        # 因為相同格式，所以共用同一個載入函數 load_link_txt
-        self.link_energy   = self.load_link_txt('data/link_energy.txt')
-        self.link_bw       = self.load_link_txt('data/link_bw.txt')
+        self.route_list = {}
+        # 能耗/BW 設定檔讀取邏輯已抽到 modules/energy_data.py，switch_energy／
+        # link_energy／link_bw 仍掛在 self 上（RoutingHost Protocol 屬性，
+        # routing 模組直接讀 self.app.switch_energy 這種 dict）
+        self.energy_data = EnergyData(self)
+        self.switch_energy = self.energy_data.switch_energy
+        self.link_energy   = self.energy_data.link_energy
+        self.link_bw       = self.energy_data.link_bw
 
-        self.initial_switch_energy = dict(self.switch_energy)
-        self.initial_link_energy   = dict(self.link_energy)
-        
         self.link_used_bw = defaultdict(float)
 
         # ==================== Active Flow 管理 ====================
-        # {(host_a, host_b): {'path': [dpid, ...], 'install_time': t}}
-        self.active_flows = {}
-        self.flow_history_count = 0   # 累計產生的流數（含 reroute）
-        self.flow_history_hops  = 0   # 累計 hop 數
+        # 記帳狀態（active_flows / flow_history_count / flow_history_hops /
+        # flow priority 分配）已抽到 modules/flow_registry.py（見下方模組實例化）
         self.reroute_count_link      = 0
         self.reroute_count_high_hop  = 0
         self.reroute_count_low_share = 0
@@ -232,8 +230,10 @@ class ProjectController(app_manager.RyuApp):
             self.bandwidth_measurement = None
             self.link_status = None
 
+        self.flow_registry = FlowRegistry(self, FLOW_BASE_PRIORITY, REROUTE_LOAD_WEIGHT)
         self.flow_stats = FlowStats(self)
         self.host_discovery = HostDiscovery(self)
+        self.arp_handler = ArpHandler(self)
 
         if ENABLE_ROUTING:
             self.routing_module = routing_module(self)
@@ -273,75 +273,30 @@ class ProjectController(app_manager.RyuApp):
     # =========================================
     # Active Flow 管理
     # =========================================
+    # 以下皆為薄呼叫，實際記帳邏輯在 modules/flow_registry.py（FlowRegistry）。
+    # 方法名稱維持不變，因為 routing 模組透過 self.app.X(...) 呼叫（見
+    # modules/routing_host.py 的 RoutingHost Protocol），DTM.py 的其他方法
+    # （_do_reroute／_monitor 等）也沿用 self.X(...) 呼叫，不用另外修改。
     def add_active_flow(self, host_a, host_b, path, is_reroute=False, priority=None):
-        self.active_flows[(host_a, host_b)] = {
-            'path': path,
-            'priority': priority,
-            'install_time': time.time()
-        }
-        if not is_reroute:
-            self.flow_history_count += 1
-            self.flow_history_hops  += len(path) - 1
-        self.flow_stats.assign(host_a, host_b, path)
-        print(f"[ActiveFlow] 新增: {host_a} -> {host_b}, 路徑: {path}")
+        return self.flow_registry.add_active_flow(host_a, host_b, path, is_reroute, priority)
 
     def remove_active_flow(self, host_a, host_b, path=None, hard_timeout=None):
-        entry = self.active_flows.get((host_a, host_b))
-        if entry is None:
-            return
-        if hard_timeout is not None:
-            if time.time() - entry['install_time'] < hard_timeout:
-                print(f"[ActiveFlow] 忽略舊 Flow Removed 事件: {host_a} -> {host_b}")
-                return
-        del self.active_flows[(host_a, host_b)]
-        self.flow_stats.unassign(host_a, host_b)
-        print(f"[ActiveFlow] 移除: {host_a} -> {host_b}")
+        return self.flow_registry.remove_active_flow(host_a, host_b, path, hard_timeout)
 
     def get_active_flows(self):
-        return [(host_a, host_b, entry['path'])
-                for (host_a, host_b), entry in self.active_flows.items()]
+        return self.flow_registry.get_active_flows()
 
     def get_history_avg_hops(self):
-        """啟動後累計的平均 hop 數（含 reroute）"""
-        if self.flow_history_count == 0:
-            return 0.0
-        return self.flow_history_hops / self.flow_history_count
+        return self.flow_registry.get_history_avg_hops()
 
     def get_avg_hops(self):
-        paths = [e['path'] for e in self.active_flows.values()]
-        if not paths:
-            return 0.0
-        return sum(len(p) - 1 for p in paths) / len(paths)
+        return self.flow_registry.get_avg_hops()
 
     def get_switch_flow_count(self):
-        """每個 switch 被幾條活躍流量通過"""
-        count = {}
-        for entry in self.active_flows.values():
-            for dpid in entry['path']:
-                count[dpid] = count.get(dpid, 0) + 1
-        return count
+        return self.flow_registry.get_switch_flow_count()
 
     def _get_next_flow_priority(self, src_mac, dst_mac):
-        """每次安裝新路徑就 +1，確保新規則優先度永遠高於舊規則，
-        使 OFPFC_ADD 能立即生效而不被舊規則蓋過。
-        舊規則靠 idle_timeout=5 自然過期，不主動刪除。
-
-        ⚠️  暴力解：priority 只增不減，上限 65534 後循環回 FLOW_BASE_PRIORITY。
-            若同一 pair 在短時間內大量重算（cascade 風暴），priority 會快速累積。
-            根本解法應為追蹤並主動刪除舊規則，但目前以簡化實作為優先。
-        """
-        key = (src_mac, dst_mac)
-        entry = self._flow_priority.get(key)
-
-        if entry is None:
-            new_priority = FLOW_BASE_PRIORITY
-        else:
-            new_priority = entry['priority'] + 1
-            if new_priority > 65534:
-                new_priority = FLOW_BASE_PRIORITY   # 循環，極少發生
-
-        self._flow_priority[key] = {'priority': new_priority, 'last_time': time.time()}
-        return new_priority
+        return self.flow_registry._get_next_flow_priority(src_mac, dst_mac)
 
     def _do_reroute(self, host_a, host_b, path, reason=""):
         new_path = self.routing_module.select_path(host_a, host_b, retrans_path=path)
@@ -367,132 +322,9 @@ class ProjectController(app_manager.RyuApp):
             self.reroute_count_high_load += 1
         return True
 
-    def _get_high_hop_flows(self, top_n=1, threshold=None):
-        flows = sorted(self.get_active_flows(), key=lambda x: len(x[2]) - 1, reverse=True)
-        if threshold is not None:
-            flows = [f for f in flows if len(f[2]) - 1 >= threshold]
-        return flows[:top_n]
-
-    def _get_low_share_flows(self, top_n=1, threshold=None):
-        switch_count = self.get_switch_flow_count()
-        def ratio(f):
-            path = f[2]
-            hops = len(path) - 1
-            if hops == 0:
-                return float('inf')
-            return sum(switch_count.get(d, 0) for d in path) / hops
-        flows = sorted(self.get_active_flows(), key=ratio)
-        if threshold is not None:
-            flows = [f for f in flows if ratio(f) <= threshold]
-        return flows[:top_n]
-
-    def _get_high_load_flows(self, top_n=1, threshold=None):
-        all_link_status = self.link_status.get_all_link_status()
-        scored = []
-        for f in self.get_active_flows():
-            path = f[2]
-            score = 0
-            skip = False
-            for i in range(len(path) - 1):
-                key = (min(path[i], path[i+1]), max(path[i], path[i+1]))
-                status = all_link_status.get(key, {}).get('status', 'NORMAL')
-                w = REROUTE_LOAD_WEIGHT.get(status, 1)
-                if w == -999:
-                    skip = True
-                    break
-                score += w
-            if not skip:
-                scored.append((score, f))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        if threshold is not None:
-            scored = [(s, f) for s, f in scored if s >= threshold]
-        return [f for _, f in scored[:top_n]]
-
     def get_path_switch_load(self, host_a, host_b):
-        """指定路徑上，每個 switch 的總流量通過數（來自所有活躍流）"""
-        entry = self.active_flows.get((host_a, host_b))
-        if entry is None:
-            return None
-        switch_count = self.get_switch_flow_count()
-        return {dpid: switch_count.get(dpid, 0) for dpid in entry['path']}
+        return self.flow_registry.get_path_switch_load(host_a, host_b)
 
-    # =========================================
-    # 讀取能耗與 BW 設定檔
-    # =========================================
-    def load_switch_energy(self, filepath='data/switch_energy.txt'):
-        data = {}
-        try:
-            with open(filepath, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('#'):
-                        continue
-                    parts = line.split()
-                    dpid   = int(parts[0])
-                    energy = int(parts[2])  
-                    data[dpid] = energy
-            print(f"*** Switch 能耗設定載入成功，共 {len(data)} 個 switch")
-        except FileNotFoundError:
-            print(f"*** 找不到 {filepath}")
-        return data
-
-    def load_link_txt(self, filepath):
-        # filepath 應該是完整路徑，例如 'data/link_energy.txt'
-        data = {}
-        try:
-            with open(filepath, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('#'):
-                        continue
-                    parts = line.split()
-                    if len(parts) < 3:
-                        continue
-                    src = int(parts[0])
-                    dst = int(parts[1])
-                    val = float(parts[2])
-                    data[(src, dst)] = val
-                    data[(dst, src)] = val   # ← 補上雙向
-        except FileNotFoundError:
-            print(f"[警告] 找不到 {filepath}")
-        return data
-
-    def calculate_energy_saving_from_flows(self):
-
-        active_flows = self.get_active_flows()
-        
-        # 從 active_flows 推導出 active_switches 和 active_links
-        active_switches = set()
-        active_links = set()
-        
-        for host_a, host_b, path in active_flows:
-            for dpid in path:
-                active_switches.add(dpid)
-            for i in range(len(path) - 1):
-                active_links.add((path[i], path[i+1]))
-        
-        # 以下跟原本一樣
-        # initial_link_energy 裡每條實體連線存了 (u,v) 跟 (v,u) 兩筆（方便雙向查詢），
-        # 加總前要先去重成唯一的無向連線 (min(u,v), max(u,v))，否則每條連線的能耗會被算兩次。
-        unique_links = {(min(u, v), max(u, v)) for (u, v) in self.initial_link_energy}
-        total_energy = sum(self.initial_switch_energy.values()) + \
-                    sum(self.initial_link_energy[link] for link in unique_links)
-
-        used_sw_energy   = sum(self.initial_switch_energy.get(n, 0)
-                            for n in active_switches)
-        unique_active_links = {(min(u, v), max(u, v)) for (u, v) in active_links}
-        used_link_energy = sum(self.initial_link_energy.get(link, 0)
-                            for link in unique_active_links)
-        current_energy   = used_sw_energy + used_link_energy
-
-        saving  = total_energy - current_energy
-        percent = saving / total_energy * 100
-
-        print(f"===== 能耗統計 ===== 節省能耗：{saving:.2f} W ({percent:.1f}%)")
-        energy_logger.info(f"ENERGY saving={saving:.2f}W percent={percent:.1f}%")
-        
-        return saving, percent     
-	   
     @set_ev_cls(ofp_event.EventOFPStateChange,
                 [MAIN_DISPATCHER, DEAD_DISPATCHER])
     def _state_change_handler(self, ev):
@@ -531,7 +363,7 @@ class ProjectController(app_manager.RyuApp):
                     if hasattr(self.routing_module, 'get_shortest_ratio') else 0.0
                 )
                 energy_logger.info(
-                    f"HISTORY avg_hops={avg_hops:.4f} total_flows={self.flow_history_count} "
+                    f"HISTORY avg_hops={avg_hops:.4f} total_flows={self.flow_registry.flow_history_count} "
                     f"reroute_link={self.reroute_count_link} "
                     f"reroute_high_hop={self.reroute_count_high_hop} "
                     f"reroute_low_share={self.reroute_count_low_share} "
@@ -569,7 +401,7 @@ class ProjectController(app_manager.RyuApp):
 
                 # ② HIGH_HOP 觸發
                 if not rebalanced and ENABLE_REROUTE_HIGH_HOP:
-                    for host_a, host_b, path in self._get_high_hop_flows(
+                    for host_a, host_b, path in self.flow_registry._get_high_hop_flows(
                             REROUTE_TOP_N_HOP, REROUTE_HOP_THRESHOLD):
                         if self._do_reroute(host_a, host_b, path, reason="HIGH_HOP"):
                             rebalanced = True
@@ -577,7 +409,7 @@ class ProjectController(app_manager.RyuApp):
 
                 # ③ HIGH_LOAD 觸發
                 if not rebalanced and ENABLE_REROUTE_HIGH_LOAD:
-                    for host_a, host_b, path in self._get_high_load_flows(
+                    for host_a, host_b, path in self.flow_registry._get_high_load_flows(
                             REROUTE_TOP_N_LOAD, REROUTE_LOAD_THRESHOLD):
                         if self._do_reroute(host_a, host_b, path, reason="HIGH_LOAD"):
                             rebalanced = True
@@ -585,7 +417,7 @@ class ProjectController(app_manager.RyuApp):
 
                 # ④ LOW_SHARE 觸發
                 if not rebalanced and ENABLE_REROUTE_LOW_SHARE:
-                    for host_a, host_b, path in self._get_low_share_flows(
+                    for host_a, host_b, path in self.flow_registry._get_low_share_flows(
                             REROUTE_TOP_N_SHARE, REROUTE_SHARE_THRESHOLD):
                         if self._do_reroute(host_a, host_b, path, reason="LOW_SHARE"):
                             rebalanced = True
@@ -595,14 +427,14 @@ class ProjectController(app_manager.RyuApp):
                 import traceback
                 print(f"[monitor_DTM] 發生錯誤: {e}")
                 traceback.print_exc()
-            self.calculate_energy_saving_from_flows()
+            self.energy_data.calculate_energy_saving_from_flows()
             hub.sleep(1)
 
     def _monitor_energy(self):
         """self 演算法專用：只負責定期輸出能耗統計"""
         hub.sleep(10)
         while True:
-            self.calculate_energy_saving_from_flows()
+            self.energy_data.calculate_energy_saving_from_flows()
             hub.sleep(1)
 
     def _flow_stats_monitor(self):
@@ -992,58 +824,6 @@ class ProjectController(app_manager.RyuApp):
             )
             datapath.send_msg(mod_rev)
 
-    def _handle_arp_request(self, datapath, in_port, arp_pkt):
-        """Controller直接回應ARP請求"""
-        self.host_list = get_host(self.topology_api_app, None)
-
-        _pair = (arp_pkt.src_mac, arp_pkt.dst_mac)
-        _count = getattr(self, 'pkt_in_pair_counter', {}).get(_pair, 0)
-        if _count > 100:
-            _known_ips = {ip: h.mac for h in self.host_list for ip in h.ipv4}
-            print(f"[ARP DEBUG] src={arp_pkt.src_ip} dst={arp_pkt.dst_ip} "
-                  f"pair_count={_count} get_host_ips={list(_known_ips.keys())}")
-
-        for host in self.host_list:
-            if arp_pkt.dst_ip in host.ipv4:
-                self._send_arp_reply(
-                    datapath, in_port,
-                    host.mac, arp_pkt.dst_ip,
-                    arp_pkt.src_mac, arp_pkt.src_ip
-                )
-                return
-            
-    def _send_arp_reply(self, datapath, in_port, src_mac, src_ip, dst_mac, dst_ip):
-        """建立並發送ARP回應封包"""
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        
-        # 建立封包
-        pkt = packet.Packet()
-        pkt.add_protocol(ethernet.ethernet(
-            dst=dst_mac,
-            src=src_mac,
-            ethertype=ether_types.ETH_TYPE_ARP
-        ))
-        pkt.add_protocol(arp.arp(
-            opcode=arp.ARP_REPLY,
-            src_mac=src_mac,
-            src_ip=src_ip,
-            dst_mac=dst_mac,
-            dst_ip=dst_ip
-        ))
-        
-        # 序列化並發送
-        pkt.serialize()
-        actions = [parser.OFPActionOutput(port=in_port)]
-        out = parser.OFPPacketOut(
-            datapath=datapath,
-            buffer_id=ofproto.OFP_NO_BUFFER,
-            in_port=ofproto.OFPP_CONTROLLER,
-            actions=actions,
-            data=pkt.data
-        )
-        datapath.send_msg(out)
-
     # ============================================
     # 演算法處理方法
     # ============================================
@@ -1103,7 +883,7 @@ class ProjectController(app_manager.RyuApp):
             return  # 不是第 0, 20, 40... 次，直接跳過
 
         # ★ 已有 active flow，不重複計算
-        if pair in self.active_flows:
+        if pair in self.flow_registry.active_flows:
             return
 
         # === 以下才是真正的處理邏輯 ===
@@ -1160,8 +940,8 @@ class ProjectController(app_manager.RyuApp):
                         if path:
                             _prio = self._get_next_flow_priority(src_mac, dst_mac)
                             self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
-                            if (src_mac, dst_mac) in self.active_flows:
-                                self.active_flows[(src_mac, dst_mac)]['priority'] = _prio
+                            if (src_mac, dst_mac) in self.flow_registry.active_flows:
+                                self.flow_registry.active_flows[(src_mac, dst_mac)]['priority'] = _prio
                             _first_sw, _first_in, _first_out = path[0]
                             print(f"[{ROUTING_ALGORITHM} Routing TCP] {src_mac} -> {dst_mac}: path {switch_path} | sw={_first_sw} in_port={_first_in} out_port={_first_out} priority={_prio}")
                         else:
@@ -1203,7 +983,7 @@ class ProjectController(app_manager.RyuApp):
             return
 
         # ★ 已有 active flow，不重複計算
-        if pair in self.active_flows:
+        if pair in self.flow_registry.active_flows:
             return
 
         # === 以下才是真正的處理邏輯 ===
@@ -1262,8 +1042,8 @@ class ProjectController(app_manager.RyuApp):
                             if path:
                                 _prio = self._get_next_flow_priority(src_mac, dst_mac)
                                 self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
-                                if (src_mac, dst_mac) in self.active_flows:
-                                    self.active_flows[(src_mac, dst_mac)]['priority'] = _prio
+                                if (src_mac, dst_mac) in self.flow_registry.active_flows:
+                                    self.flow_registry.active_flows[(src_mac, dst_mac)]['priority'] = _prio
                                 _first_sw, _first_in, _first_out = path[0]
                                 print(f"[{ROUTING_ALGORITHM} Routing UDP] {src_mac} -> {dst_mac}: path {switch_path} | sw={_first_sw} in_port={_first_in} out_port={_first_out} priority={_prio}")
                             else:
@@ -1330,13 +1110,13 @@ class ProjectController(app_manager.RyuApp):
 
         if msg.reason == ofp.OFPRR_HARD_TIMEOUT:
             if src_mac and dst_mac:
-                removed_path = (self.active_flows.get((src_mac, dst_mac)) or {}).get('path')
+                removed_path = (self.flow_registry.active_flows.get((src_mac, dst_mac)) or {}).get('path')
                 self.remove_active_flow(src_mac, dst_mac, hard_timeout=msg.hard_timeout)
                 if ROUTING_ALGORITHM in ('self', 'sorted') and removed_path and self.routing_module:
                     self.routing_module.on_flow_removed(src_mac, dst_mac, removed_path)
         elif msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
             if src_mac and dst_mac:
-                current_entry = self.active_flows.get((src_mac, dst_mac))
+                current_entry = self.flow_registry.active_flows.get((src_mac, dst_mac))
                 if current_entry is None:
                     return
                 current_priority = current_entry.get('priority')
@@ -1381,7 +1161,7 @@ class ProjectController(app_manager.RyuApp):
           if self.pkt_in_pair_counter[_pair] % 100 == 0:
               _udp_count = self.udp_pkt_counter.get(_pair, 0)
               _tcp_count = self.tcp_pkt_counter.get(_pair, 0)
-              _has_flow  = _pair in self.active_flows
+              _has_flow  = _pair in self.flow_registry.active_flows
               print(f"[PKT-IN PAIR] {_pair[0]} -> {_pair[1]} "
                     f"total={self.pkt_in_pair_counter[_pair]} "
                     f"sw={datapath.id} port={in_port} "
@@ -1424,7 +1204,7 @@ class ProjectController(app_manager.RyuApp):
         arp_pkt = pkt.get_protocol(arp.arp)
         if arp_pkt is not None:
           if arp_pkt.opcode == arp.ARP_REQUEST:
-            self._handle_arp_request(datapath, in_port, arp_pkt)
+            self.arp_handler.handle_request(datapath, in_port, arp_pkt)
           # return 移出 REQUEST 判斷之外：ARP_REPLY（opcode != REQUEST）
           # 原本沒有 return，會落到本函式最後的 OFPP_FLOOD fallback，
           # 在有迴圈的拓撲（cap_topo.py 的 core mesh）會造成無防迴圈的
