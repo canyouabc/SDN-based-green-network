@@ -1,28 +1,16 @@
 # -*- coding: utf-8 -*-
 from ryu.base import app_manager
-from ryu.controller import mac_to_port
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER
 from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
-from ryu.lib.mac import haddr_to_bin
-from ryu.lib.packet import packet
-from ryu.lib.packet import ethernet
-from ryu.lib.packet import ether_types
-from ryu.lib.packet import arp
-from ryu.lib.packet import lldp
-from ryu.lib.packet import ipv4
 from ryu.lib.packet import tcp
 from ryu.lib.packet import udp
 from ryu.lib.packet import icmp
-from ryu.base.app_manager import lookup_service_brick
-from ryu.lib import mac
-from ryu.topology import event, switches
+from ryu.topology import event
 from ryu.topology.api import get_switch, get_link
-from ryu.app.wsgi import ControllerBase
 from collections import defaultdict
 from ryu.lib import hub
-from operator import attrgetter
 import os
 import logging
 
@@ -160,12 +148,15 @@ from modules.arp_handler import ArpHandler
 from modules.energy_data import EnergyData
 from modules.flow_registry import FlowRegistry
 from modules.flow_stats import FlowStats
+from modules.history_reporter import HistoryReporter
 from modules.host_discovery import HostDiscovery
+from modules.legacy_algorithm_support import LegacyAlgorithmSupport
 from modules.packet_throttle import PacketThrottle
+from modules.packet_in_router import PacketInRouter
 from modules.path_installer import PathInstaller
 from modules.reroute_policy import ReroutePolicy
 from modules.topology_readiness import TopologyReadiness
-from modules.routing_requirements import check_dependencies
+from modules.startup_requirements import check_dependencies, MonitorFlags, should_spawn_monitor
 
 
    
@@ -179,19 +170,15 @@ class ProjectController(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     def __init__(self, *args, **kwargs):
         super(ProjectController, self).__init__(*args, **kwargs)
-        self.mac_to_port = {}
         self.topology_api_app = self
         self.datapaths = {}
-        self.arp_count = 1
-        self.ipv4_count = 1
-        self.ipv6_count = 1
-        self.lldp_count = 1
-        self.vlan_count = 1
+        # mac_to_port／ipv4_count／ipv6_count／lldp_count／vlan_count 已抽到
+        # modules/packet_in_router.py；arp_count／temp_adjacency／temp_mymac
+        # 已抽到 modules/legacy_algorithm_support.py（見下方模組實例化，
+        # 這幾個原本就是零使用/只服務 2014／auto_k_short 的歷史狀態）
         self.link_delay = {}
         self.total_switch_lldp = 0
         self.total_switch_echo = 0
-        self.temp_adjacency = {}
-        self.temp_mymac = {}
         self.last_tcp_processing_time = {}  # {pair: timestamp}
         self.last_udp_processing_time = {}  # {pair: timestamp}
         self.host_macs = {} # { mac: (dpid, port_no)}
@@ -248,6 +235,8 @@ class ProjectController(app_manager.RyuApp):
         self.flow_registry = FlowRegistry(self, FLOW_BASE_PRIORITY, REROUTE_LOAD_WEIGHT)
         self.flow_stats = FlowStats(self)
         self.host_discovery = HostDiscovery(self)
+        self.history_reporter = HistoryReporter(self)
+        self.legacy_algorithm_support = LegacyAlgorithmSupport(self, ENABLE_DELAY_DETECTION, ROUTING_ALGORITHM)
         self.arp_handler = ArpHandler(self)
         self.path_installer = PathInstaller(self, FLOW_BASE_PRIORITY)
         self.packet_handler = packet_handler_module(
@@ -259,6 +248,7 @@ class ProjectController(app_manager.RyuApp):
         self.tcp_throttle = PacketThrottle(1000, 1.0, debug_log=False, label="TCP")
         self.udp_throttle = PacketThrottle(1000, 5.0, debug_log=True, label="UDP")
         self.reroute_policy = ReroutePolicy(self, REROUTE_TRIGGER_ORDER, REROUTE_TRIGGER_CONFIG)
+        self.packet_in_router = PacketInRouter(self)
 
         if ENABLE_ROUTING:
             self.routing_module = routing_module(self)
@@ -271,27 +261,25 @@ class ProjectController(app_manager.RyuApp):
  
         
         # ==================== 執行緒啟動 ====================
-        # ← 條件啟動延遲偵測線程
-        self.monitor_thread = hub.spawn(self._monitor)
-        self.link_ready_thread = hub.spawn(self.topology_readiness._link_ready_watcher)
+        # 8 個背景執行緒該不該 spawn，統一由 modules/startup_requirements.py
+        # 的 MONITOR_CONDITIONS 表決定（單一事實來源，見該檔案說明）。
+        monitor_flags = MonitorFlags(ENABLE_ROUTING, ENABLE_DELAY_DETECTION, ENABLE_BANDWIDTH_MEASUREMENT, ROUTING_ALGORITHM)
 
-        if ENABLE_DELAY_DETECTION:
-            # 經過檢查，問題不在這
-            self.measure_thread = hub.spawn(self._detector)
-                    
-        # ← 條件啟動動態路由線程
-        if ENABLE_ROUTING:
-            # 經過檢查，問題不在這
-            self.dynamic_Dijkstra_test_thread = hub.spawn(self.dynamic_Dijkstra_test)
-                    
-        # ← 條件啟動頻寬監控線程（每秒1次）
-        if ENABLE_BANDWIDTH_MEASUREMENT:
-            # 經過檢查，問題不在這
+        if should_spawn_monitor('monitor', monitor_flags):
+            self.monitor_thread = hub.spawn(self._monitor)
+        if should_spawn_monitor('link_ready_watcher', monitor_flags):
+            self.link_ready_thread = hub.spawn(self.topology_readiness._link_ready_watcher)
+        if should_spawn_monitor('legacy_detector', monitor_flags):
+            self.measure_thread = hub.spawn(self.legacy_algorithm_support.detector)
+        if should_spawn_monitor('legacy_dynamic_test', monitor_flags):
+            self.dynamic_Dijkstra_test_thread = hub.spawn(self.legacy_algorithm_support.dynamic_test)
+        if should_spawn_monitor('bandwidth_monitor', monitor_flags):
             self.bandwidth_monitor_thread = hub.spawn(self._bandwidth_monitor)
-        self.flow_stats_monitor_thread = hub.spawn(self._flow_stats_monitor)
-        if ROUTING_ALGORITHM in ('2020', 'dijkstra'):
+        if should_spawn_monitor('flow_stats_monitor', monitor_flags):
+            self.flow_stats_monitor_thread = hub.spawn(self._flow_stats_monitor)
+        if should_spawn_monitor('monitor_dtm', monitor_flags):
             self.dtm_monitor_thread = hub.spawn(self._monitor_DTM)
-        if ROUTING_ALGORITHM in ('self', 'sorted'):
+        if should_spawn_monitor('monitor_energy', monitor_flags):
             self.energy_monitor_thread = hub.spawn(self._monitor_energy)
             
 
@@ -370,21 +358,7 @@ class ProjectController(app_manager.RyuApp):
         hub.sleep(10)
         while True:
             self.topology_readiness.update_host_mac_table()
-            if os.path.exists("stats_request.flag"):
-                avg_hops = self.get_history_avg_hops()
-                shortest_ratio = (
-                    self.routing_module.get_shortest_ratio()
-                    if hasattr(self.routing_module, 'get_shortest_ratio') else 0.0
-                )
-                energy_logger.info(
-                    f"HISTORY avg_hops={avg_hops:.4f} total_flows={self.flow_registry.flow_history_count} "
-                    f"reroute_link={self.reroute_count_link} "
-                    f"reroute_high_hop={self.reroute_count_high_hop} "
-                    f"reroute_low_share={self.reroute_count_low_share} "
-                    f"reroute_high_load={self.reroute_count_high_load} "
-                    f"shortest_ratio={shortest_ratio:.4f}"
-                )
-                os.remove("stats_request.flag")
+            self.history_reporter.maybe_log_history()
             hub.sleep(10)
             
     def _monitor_DTM(self):
@@ -421,177 +395,23 @@ class ProjectController(app_manager.RyuApp):
             self.flow_stats.log_summary()
 
     def _bandwidth_monitor(self):
-        """
-        頻寬監控線程（每秒1次）
-        定期檢查各 link 的頻寬使用率
-        """
+        """頻寬監控線程（每秒1次），實際計算邏輯在 bandwidth_measurement.py"""
         hub.sleep(10) # 等待拓撲穩定
-        
-        # ← 過濾背景流量的閾值（Mbps）
-        BW_THRESHOLD_MBPS = 0.1
-        
         while True:
             try:
-                # 發送 PortStats Request 到所有 switch
-                for dp in self.datapaths.values():
-                    self.bandwidth_measurement.send_port_stats_request(dp)
-                
-                # 等待回覆並計算（在 port_stats_reply_handler 中進行）
-                # 這裡只需定期發送請求即可
-                
-                # 列印當前的頻寬使用率
-                all_stats = self.bandwidth_measurement.get_all_bandwidth_usage()
-                
-                # ← 收集本輪的雙向流量（用於計算物理 link 的負載）
-                physical_link_traffic = {}  # {(min_dpid, max_dpid): {'traffic_bps': bps, 'capacity_bps': capacity}}
-                
-                # 格式化輸出（顯示所有有流量的方向）
-                for (dpid, port_no), stats in all_stats.items():
-                    throughput_bps = stats.get('throughput_bps', 0)
-                    throughput_mbps = throughput_bps / 1e6
-                    
-                    # ← 過濾背景流量，只顯示超過閾值的流量
-                    if throughput_mbps < BW_THRESHOLD_MBPS:
-                        continue
-                    
-                    # 尋找該埠連結的目標 switch
-                    for neighbor, port in self.adjacency[dpid].items():
-                        if port == port_no:
-                            # 查詢該 link 的容量
-                            capacity_bps = 0
-                            link_key_bw = (dpid, neighbor)
-                            if link_key_bw in self.link_bw:
-                                capacity_bps = self.link_bw[link_key_bw] * 1e6  # 轉成 bps
-                            else:
-                                # ← 如果反向 link 存在
-                                link_key_bw_rev = (neighbor, dpid)
-                                if link_key_bw_rev in self.link_bw:
-                                    capacity_bps = self.link_bw[link_key_bw_rev] * 1e6  # 轉成 bps
-                            
-                            if capacity_bps > 0:
-                                throughput_gbps = throughput_bps / 1e9
-                                capacity_gbps = capacity_bps / 1e9
-                                usage_percent_single = (throughput_bps / capacity_bps) * 100
-                                
-                                # ← 列印所有方向的日誌（PortStats 統計的）
-                                _bw_logger.info(f"[BW] Link {dpid} -> {neighbor}: {throughput_gbps:.3f} Gbps / {capacity_gbps:.3f} Gbps ({usage_percent_single:.1f}%)")
-                                
-                                # ← 累積到物理 link（用於雙向負載計算）
-                                phy_link = (min(dpid, neighbor), max(dpid, neighbor))
-                                if phy_link not in physical_link_traffic:
-                                    physical_link_traffic[phy_link] = {
-                                        'traffic_bps': 0,
-                                        'capacity_bps': capacity_bps
-                                    }
-                                physical_link_traffic[phy_link]['traffic_bps'] += throughput_bps
-                            
-                            break
-                
-                # ← 根據雙向合併的流量來判斷物理 link 的狀態
-                for (src_dpid, dst_dpid), link_info in physical_link_traffic.items():
-                    total_usage_percent = (link_info['traffic_bps'] / link_info['capacity_bps']) * 100
-                    self.link_status.update_link_status(src_dpid, dst_dpid, total_usage_percent)
-                
-                # ← 對於沒有流量的 link，重置為低負載 (0%)
-                all_links_set = set()
-                for dpid in self.adjacency:
-                    for neighbor in self.adjacency[dpid]:
-                        phy_link = (min(dpid, neighbor), max(dpid, neighbor))
-                        all_links_set.add(phy_link)
-                
-                for phy_link in all_links_set:
-                    if phy_link not in physical_link_traffic:
-                        src_dpid, dst_dpid = phy_link
-                        self.link_status.update_link_status(src_dpid, dst_dpid, 0)
-
+                self.bandwidth_measurement.run_monitor_tick(self.datapaths, self.adjacency, self.link_bw, self.link_status)
                 if ROUTING_ALGORITHM in ('self', 'sorted') and self.routing_module:
                     self.routing_module.refresh_link_cache()
-                
-                # ← 在每輪結束時，列印 link 狀態統計
-                status_counts = self.link_status.count_links_by_status()
-                print(f"SN: {status_counts['SN']}, LOW: {status_counts['LOW']}, NORMAL: {status_counts['NORMAL']}, HIGH: {status_counts['HIGH']}, OVERLOAD: {status_counts['OVERLOAD']}, DANGER: {status_counts['DANGER']}")
-                
             except Exception as e:
                 self.logger.error(f"Error in bandwidth monitor: {e}")
-            
-            # 每秒檢查一次
             hub.sleep(1)
 
 
-    def _detector(self):
-        """
-        detector 是處理延遲偵測的執行緒
-        定期掃描拓撲，將所有 link 對加入檢測隊列
-        """
-        hub.sleep(10)  # 等待拓撲穩定    
-        while True:
-            self.temp_adjacency = dict(self.adjacency)
-            detection_queue = self.delay_detection.build_detection_queue(self.temp_adjacency)
-            print(f"[DETECTOR] 開始測量，共 {len(detection_queue)} 對", flush=True)
-            for switch_a, switch_b in detection_queue:
-                self._switch_to_switch_delay_count(switch_a, switch_b)
-                hub.sleep(0)  # ← 先加這個測試
-            print(f"[DETECTOR] 測量完成", flush=True)
-            hub.sleep(30)
-    '''
-    這段用來測試 Dijkstra 動態更新路徑的功能
-    '''
-    def dynamic_Dijkstra_test(self):
-        
-        # ← 等待 10 秒，確保拓撲和主機表完全建立
-        hub.sleep(10)
-        
-        # ← 2014 版本是被動式（packet_in 觸發），不需要長期線程
-        if ROUTING_ALGORITHM == '2014':
-            print("*** 2014 被動式路由已啟用 - 路由計算將在 packet_in 事件時觸發")
-            return
-        
-        if ROUTING_ALGORITHM == 'auto_k_short':
-            print("*** k-shortest paths 計算模組已啟用 - 等待 sendarp 完成...")
-            # 清掉可能殘留的舊旗標（例如上一輪實驗中途中斷），避免這次一啟動
-            # 就誤判成「sendarp 已完成」而跳過等待
-            if os.path.exists('arp_done.flag'):
-                os.remove('arp_done.flag')
-            # 先等 send_arp_all() 送完 ARP 後寫出的旗標檔，避免在使用者於 Mininet
-            # CLI 真正打 sendarp 之前，host_macs 就因為背景流量短暫持平而誤判穩定
-            while not os.path.exists('arp_done.flag'):
-                hub.sleep(1)
-            os.remove('arp_done.flag')
-            print("*** 偵測到 sendarp 已完成，開始等待 host_macs 穩定...")
-            # 輪詢 host_macs 數量直到穩定（連續 3 次不再增加）才開始算，
-            # sendarp 送出後 packet-in 仍需時間陸續抵達 controller，這裡當作最後一道緩衝
-            last_count = -1
-            stable_ticks = 0
-            while stable_ticks < 3:
-                hub.sleep(2)
-                cur_count = len(self.host_macs)
-                if cur_count > 0 and cur_count == last_count:
-                    stable_ticks += 1
-                else:
-                    stable_ticks = 0
-                last_count = cur_count
-            print(f"\n*** host_macs 已穩定（共 {last_count} 個 host），開始計算 K-Shortest Paths...")
-            self.routing_module.compute_all_k_shortest_paths_once(
-                k=16,
-                output_filepath='data/k_short.txt',
-                host_range=(1, 16)
-            )
-            return
+    # _detector／dynamic_Dijkstra_test／_switch_to_switch_delay_count／
+    # _request_stats 只服務 2014／auto_k_short（現行主線用不到），已打包搬到
+    # modules/legacy_algorithm_support.py，功能不受影響（見上方模組實例化／
+    # hub.spawn 呼叫點）。
 
-        
-            
-
-    def _switch_to_switch_delay_count(self, switch_a, switch_b):
-        if not ENABLE_DELAY_DETECTION:
-            return
-            
-        # ← 直接傳遞 delay_detection 的模組函式作為回調
-        self.link_delay_measurement.measure_pair_delay(
-            switch_a, switch_b,
-            lambda sa, sb: self.delay_detection.send_lldp_for_delay_detection(sa, sb, self.temp_adjacency, self.datapaths),
-            lambda s, ps: self.delay_detection.send_echo_for_delay_detection(s, ps, self.datapaths),
-            hub.sleep
-        )
     # build_path_with_ports／install_flows_for_path 的實際邏輯在
     # modules/path_installer.py（PathInstaller），這裡是 RoutingHost Protocol
     # 要求保留的同名 wrapper（routing 模組直接呼叫 self.app.X(...)）。
@@ -600,25 +420,8 @@ class ProjectController(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPEchoReply, MAIN_DISPATCHER)
     def echo_reply_handler(self, ev):
-        if not ENABLE_DELAY_DETECTION:
-            return
-            
-        datapath = ev.msg.datapath
-        dpid = datapath.id
-        
-        # ← 使用 delay_detection module 處理 Echo Reply
-        self.delay_detection.handle_echo_reply_event(dpid)
+        self.legacy_algorithm_support.handle_echo_reply(ev.msg.datapath.id)
 
-    def _request_stats(self, datapath):
-        #self.logger.debug('send stats request: %016x', datapath.id)
-        #print 'send stats request:', datapath.id
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        req = parser.OFPFlowStatsRequest(datapath)
-        datapath.send_msg(req)
-        req = parser.OFPPortStatsRequest(datapath, 0, ofproto.OFPP_ANY)
-        datapath.send_msg(req)
-    
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
         """處理 FlowStats Reply，交給 flow_stats 模組解析"""
@@ -707,173 +510,8 @@ class ProjectController(app_manager.RyuApp):
 		 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
-      self.pkt_in_count = getattr(self, 'pkt_in_count', 0) + 1
-      if self.pkt_in_count % 100 == 0:
-          print(f"[PKT-IN COUNT] {self.pkt_in_count}")
+        self.packet_in_router.handle(ev)
 
-      '''
-      try:
-          print("test0", flush=True)
-          ...
-      except Exception as e:
-          import traceback
-          print(f"### EXCEPTION ###: {e}", flush=True)
-          traceback.print_exc()
-      '''
-
-      msg = ev.msg
-      datapath = msg.datapath
-      ofproto = datapath.ofproto
-      parser = datapath.ofproto_parser
-      in_port = msg.match['in_port']
-      pkt = packet.Packet(msg.data)
-      eth = pkt.get_protocol(ethernet.ethernet)
-
-      if eth:
-          _pair = (eth.src, eth.dst)
-          self.pkt_in_pair_counter = getattr(self, 'pkt_in_pair_counter', {})
-          self.pkt_in_pair_counter[_pair] = self.pkt_in_pair_counter.get(_pair, 0) + 1
-
-          if self.pkt_in_pair_counter[_pair] % 100 == 0:
-              _udp_count = self.udp_throttle.pkt_counter.get(_pair, 0)
-              _tcp_count = self.tcp_throttle.pkt_counter.get(_pair, 0)
-              _has_flow  = _pair in self.flow_registry.active_flows
-              print(f"[PKT-IN PAIR] {_pair[0]} -> {_pair[1]} "
-                    f"total={self.pkt_in_pair_counter[_pair]} "
-                    f"sw={datapath.id} port={in_port} "
-                    f"udp={_udp_count} tcp={_tcp_count} "
-                    f"active_flow={_has_flow}")
-
-      # 處理 LLDP 封包
-      #if eth.ethertype != 0x88CC:
-          #print("test")
-      if eth.ethertype == 0x88CC:
-          #print("LLDP packet received")
-          lldp_pkt = pkt.get_protocol(lldp.lldp)
-          if not lldp_pkt:
-            return  # 非 LLDP 封包，忽略
-          
-          # ← 只在啟用延遲偵測時處理自定義 LLDP
-          # if ENABLE_DELAY_DETECTION:  ← 原始版本沒有此判斷，直接處理
-          for tlv in lldp_pkt.tlvs:
-              if isinstance(tlv, lldp.OrganizationallySpecific):
-                  info_str = tlv.info.decode('utf-8')
-                  if info_str.startswith("Delay_LLDP|"):
-                      parts = info_str.split("|")
-                      if len(parts) == 3:
-                          switch_a = int(parts[1])
-                          switch_b = int(parts[2])
-                                                  
-                          # ← 改為呼叫新模組的 LLDP 回覆處理
-                          if (switch_a, switch_b) in self.link_delay_measurement.temp_lldp_link_delay:
-                              self.link_delay_measurement.handle_lldp_reply(switch_a, switch_b)
-                              #print(f"*** handle_lldp_reply called for ({switch_a}, {switch_b}), delay now: {temp_lldp_link_delay[(switch_a, switch_b)]}")
-                          else:
-                              self.logger.info("Delay_LLDP| %s -> %s not found", switch_a, switch_b)
-                          
-                      break  # 找到自定義 LLDP 後跳出迴圈
-          return  
-    # 繼續處理其他封包
-      #print("eth.ethertype=", eth.ethertype)
-      #avodi broadcast from LLDP
-      if eth.ethertype == ether_types.ETH_TYPE_ARP:
-        arp_pkt = pkt.get_protocol(arp.arp)
-        if arp_pkt is not None:
-          if arp_pkt.opcode == arp.ARP_REQUEST:
-            self.arp_handler.handle_request(datapath, in_port, arp_pkt)
-          # return 移出 REQUEST 判斷之外：ARP_REPLY（opcode != REQUEST）
-          # 原本沒有 return，會落到本函式最後的 OFPP_FLOOD fallback，
-          # 在有迴圈的拓撲（cap_topo.py 的 core mesh）會造成無防迴圈的
-          # 永久廣播風暴（2026-09-11 實測，見 modules/host_discovery.py
-          # 開頭註解）。這個架構下 controller 是純代理 ARP，正常運作時
-          # host 本來就看不到彼此的原始 ARP 封包，ARP_REPLY 幾乎不會
-          # 發生，補上 return 不影響任何現有功能。
-          return
-
-      # ← 檢測 TCP/UDP/ICMP 等傳輸層協議
-      if eth.ethertype == ether_types.ETH_TYPE_IP:
-        ipv4_pkt = pkt.get_protocol(ipv4.ipv4)
-        if ipv4_pkt is not None:
-          # 檢測 TCP
-          if ipv4_pkt.proto == 6:  # TCP protocol number
-            #tcp_pkt = pkt.get_protocol(tcp.tcp)
-            #if tcp_pkt is not None:
-            self.packet_handler.unknown_TCP_packet(datapath, pkt)
-            return
-          # 檢測 UDP
-          elif ipv4_pkt.proto == 17:  # UDP protocol number
-            #udp_pkt = pkt.get_protocol(udp.udp)
-            #if udp_pkt is not None:
-            #print("UDP packet detected")
-            self.packet_handler.unknown_UDP_packet(datapath, pkt)
-            return
-          # 檢測 ICMP
-          elif ipv4_pkt.proto == 1:  # ICMP protocol number
-            #icmp_pkt = pkt.get_protocol(icmp.icmp)
-            #if icmp_pkt is not None:
-            self.packet_handler.unknown_ICMP_packet(datapath, pkt)
-            return
-          else:
-            # 其他 IPv4 協議
-            self.packet_handler.unknown_IPv4_packet(datapath, pkt)
-            return
-
-      # 檢測 IPv6
-      if eth.ethertype == ether_types.ETH_TYPE_IPV6:
-        self.packet_handler.unknown_IPv6_packet(datapath, pkt)
-        return
-      
-      if eth.ethertype == 35020:
-        return
-      dst = eth.dst
-      src = eth.src
-      dpid = datapath.id
-      self.mac_to_port.setdefault(dpid, {})
-      
-      # 學習 host 的 MAC 位址與連接埠
-      # hosts = get_host(self.topology_api_app, None)
-      # host_macs = [host.mac for host in hosts]
-      # if src in host_macs and src not in mymac.keys():
-      #  mymac[src] = (dpid, in_port)
-      #if dst in mymac.keys():
-        #print("get dst")
-      #  p = get_min_delay_path(mymac[src][0], mymac[dst][0], mymac[src][1], mymac[dst][1])
-      #  route_list[(src, dst)] = p
-      #  self.install_path(p, ev, src, dst)
-      #  out_port = p[0][2]
-      #else:
-      out_port = ofproto.OFPP_FLOOD
-      actions = [parser.OFPActionOutput(out_port)]
-      # install a flow to avoid packet_in next time
-      if out_port != ofproto.OFPP_FLOOD:
-        match = parser.OFPMatch(in_port=in_port, eth_src=src, eth_dst=dst)
-      data = None
-      if msg.buffer_id == ofproto.OFP_NO_BUFFER:
-        data = msg.data
-      if out_port == ofproto.OFPP_FLOOD:
-        if eth.ethertype == 0x0800:
-            self.ipv4_count += 1
-        elif eth.ethertype == 0x86DD:
-            self.ipv6_count += 1
-            return
-        elif eth.ethertype == 0x88CC:
-            self.lldp_count += 1
-            print("LLDP", self.lldp_count)
-        elif eth.ethertype == 0x8100:
-            self.vlan_count += 1
-            print("VLAN", self.vlan_count)
-
-        actions = [parser.OFPActionOutput(ofproto.OFPP_FLOOD)]
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                      in_port=in_port, actions=actions, data=data)
-        datapath.send_msg(out)
-      else:
-        print ("unicast")
-        out = parser.OFPPacketOut(
-          datapath=datapath, buffer_id=msg.buffer_id, in_port=in_port,
-          actions=actions, data=data)
-        datapath.send_msg(out)
-        
     events = [event.EventSwitchEnter,
          event.EventSwitchLeave, event.EventPortAdd,
           event.EventPortDelete, event.EventPortModify,
