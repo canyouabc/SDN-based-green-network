@@ -18,7 +18,7 @@ from ryu.lib.packet import icmp
 from ryu.base.app_manager import lookup_service_brick
 from ryu.lib import mac
 from ryu.topology import event, switches
-from ryu.topology.api import get_switch, get_link, get_host
+from ryu.topology.api import get_switch, get_link
 from ryu.app.wsgi import ControllerBase
 from collections import defaultdict
 from ryu.lib import hub
@@ -137,6 +137,9 @@ from modules.energy_data import EnergyData
 from modules.flow_registry import FlowRegistry
 from modules.flow_stats import FlowStats
 from modules.host_discovery import HostDiscovery
+from modules.packet_algorithm import PacketAlgorithm
+from modules.path_installer import PathInstaller
+from modules.topology_readiness import TopologyReadiness
 from modules.routing_requirements import check_dependencies
 
 
@@ -167,11 +170,8 @@ class ProjectController(app_manager.RyuApp):
         self.last_tcp_processing_time = {}  # {pair: timestamp}
         self.last_udp_processing_time = {}  # {pair: timestamp}
         self.host_macs = {} # { mac: (dpid, port_no)}
-        self.dpid_to_mac = {}            # {dpid: mac}
-        self._topo_ready_logged = False  # [TOPO_READY] 只發一次
-        self._link_ready_logged = False  # [LINK_READY] 只發一次
-        self._last_sw_count     = 0
-        self._last_link_count   = 0
+        # dpid_to_mac／_topo_ready_logged／_link_ready_logged／_last_sw_count／
+        # _last_link_count 已抽到 modules/topology_readiness.py（見下方模組實例化）
         self._flow_cookie_counter = 0
 
         # ← TCP 節流属性
@@ -234,6 +234,9 @@ class ProjectController(app_manager.RyuApp):
         self.flow_stats = FlowStats(self)
         self.host_discovery = HostDiscovery(self)
         self.arp_handler = ArpHandler(self)
+        self.path_installer = PathInstaller(self, FLOW_BASE_PRIORITY)
+        self.packet_algorithm = PacketAlgorithm(self, PACKET_ALGORITHM_ICMP, PACKET_ALGORITHM_IPV4, PACKET_ALGORITHM_IPV6)
+        self.topology_readiness = TopologyReadiness(self)
 
         if ENABLE_ROUTING:
             self.routing_module = routing_module(self)
@@ -248,7 +251,7 @@ class ProjectController(app_manager.RyuApp):
         # ==================== 執行緒啟動 ====================
         # ← 條件啟動延遲偵測線程
         self.monitor_thread = hub.spawn(self._monitor)
-        self.link_ready_thread = hub.spawn(self._link_ready_watcher)
+        self.link_ready_thread = hub.spawn(self.topology_readiness._link_ready_watcher)
 
         if ENABLE_DELAY_DETECTION:
             # 經過檢查，問題不在這
@@ -334,28 +337,17 @@ class ProjectController(app_manager.RyuApp):
                 #self.logger.debug('register datapath: %016x', datapath.id)
                 print('register datapath:', datapath.id)
                 self.datapaths[datapath.id] = datapath
-                self._install_arp_to_controller(datapath)
+                self.arp_handler.install_arp_to_controller(datapath)
         elif ev.state == DEAD_DISPATCHER:
             if datapath.id in self.datapaths:
                 #self.logger.debug('unregister datapath: %016x', datapath.id)
                 print('unregister datapath:', datapath.id)
                 del self.datapaths[datapath.id]
-    def _install_arp_to_controller(self, datapath):
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_ARP)
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, 128)]  # ARP 最多 42 bytes，128 足夠
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-        mod = parser.OFPFlowMod(
-            datapath=datapath, priority=10,
-            match=match, instructions=inst
-        )
-        datapath.send_msg(mod)
 
     def _monitor(self):
         hub.sleep(10)
         while True:
-            self.update_host_mac_table()
+            self.topology_readiness.update_host_mac_table()
             if os.path.exists("stats_request.flag"):
                 avg_hops = self.get_history_avg_hops()
                 shortest_ratio = (
@@ -608,51 +600,6 @@ class ProjectController(app_manager.RyuApp):
 
         
             
-    def _check_link_ready(self):
-        """檢查 switch 和 link 數量是否穩定，穩定則發出 [LINK_READY]"""
-        sw_count   = len(get_switch(self.topology_api_app, None))
-        link_count = len(get_link(self.topology_api_app, None))
-        if (sw_count > 0 and link_count > 0
-                and sw_count   == self._last_sw_count
-                and link_count == self._last_link_count
-                and not self._link_ready_logged):
-            self._link_ready_logged = True
-            print(f"[LINK_READY] 共 {sw_count} 個 switch，{link_count} 條 link")
-            # 2026-09-11：曾因 ARP_REPLY 落入 OFPP_FLOOD（無防迴圈的網狀
-            # 拓撲）造成永久性廣播風暴，根因已修（見上方 ARP 封包處理
-            # 段落，return 移出 REQUEST 判斷之外）。修好後完整實測通過
-            # （cap_topo.py，全程不打 sendarp，iperf 直接成功），正式啟用。
-            self.host_discovery.discover()
-        self._last_sw_count   = sw_count
-        self._last_link_count = link_count
-
-    def _link_ready_watcher(self):
-        """快速輪詢直到 [LINK_READY] 確認，之後結束"""
-        hub.sleep(3)
-        while not self._link_ready_logged:
-            self._check_link_ready()
-            hub.sleep(2)
-
-    def update_host_mac_table(self):
-        """从拓扑信息更新主机MAC表"""
-        hosts = get_host(self.topology_api_app, None)
-        new_added = 0
-
-        for host in hosts:
-            mac = host.mac
-            dpid = host.port.dpid
-            port_no = host.port.port_no
-
-            if mac not in self.host_macs:
-                self.host_macs[mac] = (dpid, port_no)
-                self.dpid_to_mac[dpid] = mac
-                print(f"Added host: {mac} at switch {dpid}, port {port_no}")
-                new_added += 1
-
-        # 這輪沒有新增 host，且已有資料 → 拓撲穩定，發一次 [TOPO_READY]
-        if new_added == 0 and self.host_macs and not self._topo_ready_logged:
-            self._topo_ready_logged = True
-            print(f"[TOPO_READY] 所有 host 已學習完成，共 {len(self.host_macs)} 個")            
 
     def _switch_to_switch_delay_count(self, switch_a, switch_b):
         if not ENABLE_DELAY_DETECTION:
@@ -665,43 +612,12 @@ class ProjectController(app_manager.RyuApp):
             lambda s, ps: self.delay_detection.send_echo_for_delay_detection(s, ps, self.datapaths),
             hub.sleep
         )
+    # build_path_with_ports／install_flows_for_path 的實際邏輯在
+    # modules/path_installer.py（PathInstaller），這裡是 RoutingHost Protocol
+    # 要求保留的同名 wrapper（routing 模組直接呼叫 self.app.X(...)）。
     def build_path_with_ports(self, switch_path, src_mac, dst_mac):
-        """將 switch_path (dpid序列) 轉換成帶有 port 資訊的 path"""
-        path = []
+        return self.path_installer.build_path_with_ports(switch_path, src_mac, dst_mac)
 
-        if len(switch_path) == 1:
-            first_sw = switch_path[0]
-            host_in_port = self.host_macs[src_mac][1]
-            host_out_port = self.host_macs[dst_mac][1]
-            path.append((first_sw, host_in_port, host_out_port))
-        else:
-            # 第一個 switch
-            first_sw = switch_path[0]
-            host_in_port = self.host_macs[src_mac][1]
-            out_port = self.adjacency[first_sw][switch_path[1]]
-            if out_port is None:
-                return None
-            path.append((first_sw, host_in_port, out_port))
-
-            # 中間的 switch
-            for i in range(1, len(switch_path) - 1):
-                sw_dpid = switch_path[i]
-                in_port = self.adjacency[sw_dpid][switch_path[i-1]]
-                out_port = self.adjacency[sw_dpid][switch_path[i+1]]
-                if in_port is None or out_port is None:
-                    return None
-                path.append((sw_dpid, in_port, out_port))
-
-            # 最後一個 switch
-            last_sw = switch_path[-1]
-            in_port = self.adjacency[last_sw][switch_path[-2]]
-            if in_port is None:
-                return None
-            host_out_port = self.host_macs[dst_mac][1]
-            path.append((last_sw, in_port, host_out_port))
-
-        return path
-        
     @set_ev_cls(ofp_event.EventOFPEchoReply, MAIN_DISPATCHER)
     def echo_reply_handler(self, ev):
         if not ENABLE_DELAY_DETECTION:
@@ -747,115 +663,14 @@ class ProjectController(app_manager.RyuApp):
             self.logger.error(f"Error handling PortStats Reply: {e}")
         
         
-    # 主动安装流表，不依赖packet_in事件，但感覺可以寫得更彈性一些
-    def install_flows_for_path(self, path, src_mac, dst_mac, priority, hard_timeout=0,idle_timeout=0):
-        """主动安装流表，不依赖packet_in事件"""
-        #print(f"Installing flows for path: {src_mac} -> {dst_mac}")
-        
-        for sw_dpid, in_port, out_port in path:
-            if sw_dpid not in self.datapaths:
-                print(f"Warning: Switch {sw_dpid} not found")
-                continue
-                
-            datapath = self.datapaths[sw_dpid]
-            ofproto = datapath.ofproto
-            parser = datapath.ofproto_parser
-            
-            # 安装正向流表
-            match = parser.OFPMatch(in_port=in_port, eth_src=src_mac, eth_dst=dst_mac)
-            actions = [parser.OFPActionOutput(out_port)]
-            inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-            
-            mod = parser.OFPFlowMod(
-                datapath=datapath,
-                match=match,
-                idle_timeout=idle_timeout,
-                hard_timeout=hard_timeout,
-                priority=priority,
-                flags=ofproto.OFPFF_SEND_FLOW_REM,
-                instructions=inst
-            )
-            datapath.send_msg(mod)
-            
-            # 安装反向流表
-            
-            match_rev = parser.OFPMatch(in_port=out_port, eth_src=dst_mac, eth_dst=src_mac)
-            actions_rev = [parser.OFPActionOutput(in_port)]
-            inst_rev = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions_rev)]
-            mod_rev = parser.OFPFlowMod(
-                datapath=datapath, match=match_rev,
-                idle_timeout=idle_timeout, hard_timeout=hard_timeout,
-                priority=priority, flags=ofproto.OFPFF_SEND_FLOW_REM,
-                instructions=inst_rev
-            )
-            datapath.send_msg(mod_rev)
-    def remove_flows_for_path(self, path, src_mac, dst_mac, priority=FLOW_BASE_PRIORITY):
-        """主動刪除流表。OFPFC_DELETE_STRICT 需指定 priority 才能精確比對。"""
-        for sw_dpid, in_port, out_port in path:
-            if sw_dpid not in self.datapaths:
-                print(f"Warning: Switch {sw_dpid} not found")
-                continue
+    # install_flows_for_path 的實際邏輯在 modules/path_installer.py，這裡是
+    # RoutingHost Protocol 要求保留的同名 wrapper（routing 模組直接呼叫
+    # self.app.install_flows_for_path(...)）。remove_flows_for_path 目前沒有
+    # 任何呼叫者（搬過去前就已經是這樣），不留 wrapper，需要用時直接呼叫
+    # self.path_installer.remove_flows_for_path(...)。
+    def install_flows_for_path(self, path, src_mac, dst_mac, priority, hard_timeout=0, idle_timeout=0):
+        return self.path_installer.install_flows_for_path(path, src_mac, dst_mac, priority, hard_timeout, idle_timeout)
 
-            datapath = self.datapaths[sw_dpid]
-            ofproto = datapath.ofproto
-            parser = datapath.ofproto_parser
-
-            # 刪除正向流表
-            match = parser.OFPMatch(in_port=in_port, eth_src=src_mac, eth_dst=dst_mac)
-            mod = parser.OFPFlowMod(
-                datapath=datapath,
-                match=match,
-                priority=priority,
-                command=ofproto.OFPFC_DELETE_STRICT,
-                out_port=ofproto.OFPP_ANY,
-                out_group=ofproto.OFPG_ANY,
-            )
-            datapath.send_msg(mod)
-
-            # 刪除反向流表
-            match_rev = parser.OFPMatch(in_port=out_port, eth_src=dst_mac, eth_dst=src_mac)
-            mod_rev = parser.OFPFlowMod(
-                datapath=datapath,
-                match=match_rev,
-                priority=priority,
-                command=ofproto.OFPFC_DELETE_STRICT,
-                out_port=ofproto.OFPP_ANY,
-                out_group=ofproto.OFPG_ANY,
-            )
-            datapath.send_msg(mod_rev)
-
-    # ============================================
-    # 演算法處理方法
-    # ============================================
-    def _apply_packet_algorithm(self, algorithm, datapath, pkt, packet_type):
-        """根據演算法類型執行相應的處理邏輯"""
-        if algorithm == 'DROP':
-            # 丟棄封包（不轉發）
-            #print(f"[{packet_type}] DROP from {datapath.id}")
-            pass
-        
-        elif algorithm == 'FLOOD':
-            # 轉發到所有埠（flooding）
-            ofproto = datapath.ofproto
-            parser = datapath.ofproto_parser
-            # pkt 在這裡是 Packet 物件，需要從 _packet_in_handler 傳遞 msg
-            #print(f"[{packet_type}] FLOOD from {datapath.id}")
-        
-        elif algorithm == 'LOG_ONLY':
-            # 只記錄，不轉發
-            #print(f"[{packet_type}] LOG_ONLY from {datapath.id}")
-            pass
-        
-        elif algorithm == 'DYNAMIC_ROUTING':
-            # 使用動態路由（Dijkstra）
-            #print(f"[{packet_type}] DYNAMIC_ROUTING from {datapath.id} (未實作)")
-            # TODO: 在此實作動態路由邏輯
-            pass
-        
-        else:
-            #print(f"[{packet_type}] Unknown algorithm: {algorithm}")
-            pass
-    
     # ============================================
     # 未定義流量的 Hook 處理（可擴展設計）
     # ============================================
@@ -955,7 +770,7 @@ class ProjectController(app_manager.RyuApp):
                 self.logger.error(f"[{ROUTING_ALGORITHM} Routing TCP] 路由計算失敗: {e}")
             
         else:
-            self._apply_packet_algorithm(PACKET_ALGORITHM_TCP, datapath, pkt_data, 'TCP')
+            self.packet_algorithm._apply_packet_algorithm(PACKET_ALGORITHM_TCP, datapath, pkt_data, 'TCP')
 
     def unknown_UDP_packet(self, datapath, pkt_data):
         eth = pkt_data.get_protocol(ethernet.ethernet)
@@ -1058,23 +873,8 @@ class ProjectController(app_manager.RyuApp):
                 print(f"[{ROUTING_ALGORITHM} Routing UDP] 路由計算失敗: {e}")
                 traceback.print_exc()
         else:
-            self._apply_packet_algorithm(PACKET_ALGORITHM_UDP, datapath, pkt_data, 'UDP')
-        
-    def unknown_ICMP_packet(self, datapath, pkt_data):
-        """處理未定義的 ICMP 流量 - 根據全域演算法開關觸發"""
-        print(f"[UNKNOWN_ICMP] 收到未定義的 ICMP 封包，來自 switch {datapath.id}")
-        self._apply_packet_algorithm(PACKET_ALGORITHM_ICMP, datapath, pkt_data, 'ICMP')
+            self.packet_algorithm._apply_packet_algorithm(PACKET_ALGORITHM_UDP, datapath, pkt_data, 'UDP')
 
-    def unknown_IPv4_packet(self, datapath, pkt_data):
-        """處理其他未定義的 IPv4 流量 - 根據全域演算法開關觸發"""
-        print(f"[UNKNOWN_IPv4] 收到其他類型的未定義 IPv4 封包，來自 switch {datapath.id}")
-        self._apply_packet_algorithm(PACKET_ALGORITHM_IPV4, datapath, pkt_data, 'IPv4')
-
-    def unknown_IPv6_packet(self, datapath, pkt_data):
-        """處理未定義的 IPv6 流量 - 根據全域演算法開關觸發"""
-        #print(f"[UNKNOWN_IPv6] 收到未定義的 IPv6 封包，來自 switch {datapath.id}")
-        self._apply_packet_algorithm(PACKET_ALGORITHM_IPV6, datapath, pkt_data, 'IPv6')
-	
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures , CONFIG_DISPATCHER)
     def switch_features_handler(self , ev):
 
@@ -1235,16 +1035,16 @@ class ProjectController(app_manager.RyuApp):
           elif ipv4_pkt.proto == 1:  # ICMP protocol number
             #icmp_pkt = pkt.get_protocol(icmp.icmp)
             #if icmp_pkt is not None:
-            self.unknown_ICMP_packet(datapath, pkt)
+            self.packet_algorithm.unknown_ICMP_packet(datapath, pkt)
             return
           else:
             # 其他 IPv4 協議
-            self.unknown_IPv4_packet(datapath, pkt)
+            self.packet_algorithm.unknown_IPv4_packet(datapath, pkt)
             return
-      
+
       # 檢測 IPv6
       if eth.ethertype == ether_types.ETH_TYPE_IPV6:
-        self.unknown_IPv6_packet(datapath, pkt)
+        self.packet_algorithm.unknown_IPv6_packet(datapath, pkt)
         return
       
       if eth.ethertype == 35020:

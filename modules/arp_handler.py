@@ -6,9 +6,13 @@ arp_handler.py - Controller 代理 ARP 請求
 controller 直接查 Ryu topology 的 get_host() 找出目標 host，用 OFPPacketOut
 組一個 ARP_REPLY 直接送回去（繞過 flow table，不需要目標 host 真的在場回覆）。
 
+也包含 _install_arp_to_controller：switch 註冊時安裝的 table-miss 規則之一，
+讓 ARP 封包送到 controller（跟上面的 ARP 代理回應是同一個主題，一起搬）。
+
 使用方式：
     self.arp_handler = ArpHandler(self)   # DTM.py __init__ 建立
     self.arp_handler.handle_request(datapath, in_port, arp_pkt)   # _packet_in_handler 呼叫
+    self.arp_handler.install_arp_to_controller(datapath)          # _state_change_handler 呼叫
 """
 
 from ryu.topology.api import get_host
@@ -22,6 +26,18 @@ class ArpHandler:
     def __init__(self, app):
         self.app = app
         self.host_list = {}
+
+    def install_arp_to_controller(self, datapath):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_ARP)
+        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, 128)]  # ARP 最多 42 bytes，128 足夠
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+        mod = parser.OFPFlowMod(
+            datapath=datapath, priority=10,
+            match=match, instructions=inst
+        )
+        datapath.send_msg(mod)
 
     def handle_request(self, datapath, in_port, arp_pkt):
         """Controller直接回應ARP請求"""
