@@ -81,6 +81,16 @@ REROUTE_LOAD_WEIGHT = {        # 各 link 狀態的負載分數
     'OVERLOAD': -999,          # OVERLOAD 已由 LINK 觸發處理，此觸發不選
     'DANGER':   -999,          # DANGER 已由 LINK 觸發處理，此觸發不選
 }
+
+# 依序檢查各觸發條件，第一個成功觸發重路由就停（見 modules/reroute_policy.py）。
+# LINK 沒有 ENABLE_* 開關（永遠檢查），其餘三個依對應的 ENABLE_REROUTE_* 決定
+# 要不要檢查。想調整優先順序只要改這個 tuple，不用動邏輯。
+REROUTE_TRIGGER_ORDER = ('LINK', 'HIGH_HOP', 'HIGH_LOAD', 'LOW_SHARE')
+REROUTE_TRIGGER_CONFIG = {
+    'HIGH_HOP':  {'enabled': ENABLE_REROUTE_HIGH_HOP,  'top_n': REROUTE_TOP_N_HOP,  'threshold': REROUTE_HOP_THRESHOLD},
+    'HIGH_LOAD': {'enabled': ENABLE_REROUTE_HIGH_LOAD, 'top_n': REROUTE_TOP_N_LOAD, 'threshold': REROUTE_LOAD_THRESHOLD},
+    'LOW_SHARE': {'enabled': ENABLE_REROUTE_LOW_SHARE, 'top_n': REROUTE_TOP_N_SHARE, 'threshold': REROUTE_SHARE_THRESHOLD},
+}
 # ============================================================
 
 # ==================== Flow Priority Counter ==================
@@ -139,6 +149,7 @@ from modules.host_discovery import HostDiscovery
 from modules.packet_algorithm import PacketAlgorithm
 from modules.packet_throttle import PacketThrottle
 from modules.path_installer import PathInstaller
+from modules.reroute_policy import ReroutePolicy
 from modules.topology_readiness import TopologyReadiness
 from modules.routing_requirements import check_dependencies
 
@@ -229,6 +240,7 @@ class ProjectController(app_manager.RyuApp):
         self.topology_readiness = TopologyReadiness(self)
         self.tcp_throttle = PacketThrottle(1000, 1.0, debug_log=False, label="TCP")
         self.udp_throttle = PacketThrottle(1000, 5.0, debug_log=True, label="UDP")
+        self.reroute_policy = ReroutePolicy(self, REROUTE_TRIGGER_ORDER, REROUTE_TRIGGER_CONFIG)
 
         if ENABLE_ROUTING:
             self.routing_module = routing_module(self)
@@ -358,55 +370,13 @@ class ProjectController(app_manager.RyuApp):
             hub.sleep(10)
             
     def _monitor_DTM(self):
-        """定期偵測 link 狀態，每個週期只轉移一條流量"""
+        """定期偵測 link 狀態，每個週期只轉移一條流量。
+        四個觸發條件的優先順序是資料（REROUTE_TRIGGER_ORDER），依序檢查的
+        引擎在 modules/reroute_policy.py，調整順序只要改那份常數。"""
         hub.sleep(10) # 等待拓撲穩定
         while True:
             try:
-                rebalanced = False
-
-                # ① LINK 觸發：LOW / OVERLOAD
-                all_link_status = self.link_status.get_all_link_status()
-                for (dpid_a, dpid_b), link_info in all_link_status.items():
-                    if rebalanced:
-                        break
-                    status = link_info.get('status', 'NORMAL')
-                    if status not in ('LOW', 'OVERLOAD', 'DANGER'):
-                        continue
-                    for host_a, host_b, path in self.get_active_flows():
-                        has_link = any(
-                            (min(path[i], path[i+1]), max(path[i], path[i+1])) == (dpid_a, dpid_b)
-                            for i in range(len(path) - 1)
-                        )
-                        if not has_link:
-                            continue
-                        if self._do_reroute(host_a, host_b, path, reason="LINK"):
-                            rebalanced = True
-                            break
-
-                # ② HIGH_HOP 觸發
-                if not rebalanced and ENABLE_REROUTE_HIGH_HOP:
-                    for host_a, host_b, path in self.flow_registry._get_high_hop_flows(
-                            REROUTE_TOP_N_HOP, REROUTE_HOP_THRESHOLD):
-                        if self._do_reroute(host_a, host_b, path, reason="HIGH_HOP"):
-                            rebalanced = True
-                            break
-
-                # ③ HIGH_LOAD 觸發
-                if not rebalanced and ENABLE_REROUTE_HIGH_LOAD:
-                    for host_a, host_b, path in self.flow_registry._get_high_load_flows(
-                            REROUTE_TOP_N_LOAD, REROUTE_LOAD_THRESHOLD):
-                        if self._do_reroute(host_a, host_b, path, reason="HIGH_LOAD"):
-                            rebalanced = True
-                            break
-
-                # ④ LOW_SHARE 觸發
-                if not rebalanced and ENABLE_REROUTE_LOW_SHARE:
-                    for host_a, host_b, path in self.flow_registry._get_low_share_flows(
-                            REROUTE_TOP_N_SHARE, REROUTE_SHARE_THRESHOLD):
-                        if self._do_reroute(host_a, host_b, path, reason="LOW_SHARE"):
-                            rebalanced = True
-                            break
-
+                self.reroute_policy.attempt_rebalance()
             except Exception as e:
                 import traceback
                 print(f"[monitor_DTM] 發生錯誤: {e}")
