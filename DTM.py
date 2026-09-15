@@ -24,7 +24,6 @@ from collections import defaultdict
 from ryu.lib import hub
 from operator import attrgetter
 import os
-import time
 import logging
 
 
@@ -138,6 +137,7 @@ from modules.flow_registry import FlowRegistry
 from modules.flow_stats import FlowStats
 from modules.host_discovery import HostDiscovery
 from modules.packet_algorithm import PacketAlgorithm
+from modules.packet_throttle import PacketThrottle
 from modules.path_installer import PathInstaller
 from modules.topology_readiness import TopologyReadiness
 from modules.routing_requirements import check_dependencies
@@ -174,17 +174,7 @@ class ProjectController(app_manager.RyuApp):
         # _last_link_count 已抽到 modules/topology_readiness.py（見下方模組實例化）
         self._flow_cookie_counter = 0
 
-        # ← TCP 節流属性
-        self.tcp_pkt_counter = {}        # (src, dst) → 計數
-        self.tcp_last_seen = {}          # (src, dst) → 最後一次看到的時間
-        self.TCP_THROTTLE_N = 1000        # 每 N 次觸發一次
-        self.TCP_RESET_IDLE = 1.0        # 閒置幾秒後重置計數器
-        
-        # ← UDP 節流属性
-        self.udp_pkt_counter = {}        # (src, dst) → 計數
-        self.udp_last_seen = {}          # (src, dst) → 最後一次看到的時間
-        self.UDP_THROTTLE_N = 1000     # 每 N 次觸發一次
-        self.UDP_RESET_IDLE = 5.0        # 閒置幾秒後重置計數器
+        # TCP/UDP 節流邏輯已抽到 modules/packet_throttle.py（見下方模組實例化）
         # ==================== 拓扑数据 ====================
         self.myswitches = []
         
@@ -237,6 +227,8 @@ class ProjectController(app_manager.RyuApp):
         self.path_installer = PathInstaller(self, FLOW_BASE_PRIORITY)
         self.packet_algorithm = PacketAlgorithm(self, PACKET_ALGORITHM_ICMP, PACKET_ALGORITHM_IPV4, PACKET_ALGORITHM_IPV6)
         self.topology_readiness = TopologyReadiness(self)
+        self.tcp_throttle = PacketThrottle(1000, 1.0, debug_log=False, label="TCP")
+        self.udp_throttle = PacketThrottle(1000, 5.0, debug_log=True, label="UDP")
 
         if ENABLE_ROUTING:
             self.routing_module = routing_module(self)
@@ -680,22 +672,9 @@ class ProjectController(app_manager.RyuApp):
             return
 
         pair = (eth.src, eth.dst)
-        now = time.time()
-
-        # === 第二層：閒置超過 5 秒，重置計數器 ===
-        if pair in self.tcp_last_seen:
-            if now - self.tcp_last_seen[pair] > self.TCP_RESET_IDLE:
-                self.tcp_pkt_counter[pair] = 0  # 重置，下一個封包會是第 0 次
-
-        # 更新時間戳
-        self.tcp_last_seen[pair] = now
-
-        # === 第一層：每 N 次只處理一次 ===
-        count = self.tcp_pkt_counter.get(pair, 0)
-        self.tcp_pkt_counter[pair] = count + 1
-
-        if count % self.TCP_THROTTLE_N != 0:
-            return  # 不是第 0, 20, 40... 次，直接跳過
+        count = self.tcp_throttle.should_process(pair)
+        if count is None:
+            return  # 節流跳過
 
         # ★ 已有 active flow，不重複計算
         if pair in self.flow_registry.active_flows:
@@ -778,24 +757,9 @@ class ProjectController(app_manager.RyuApp):
             return
 
         pair = (eth.src, eth.dst)
-        now = time.time()
-
-        # === 第二層：閒置超過 5 秒，重置計數器 ===
-        if pair in self.udp_last_seen:
-            if now - self.udp_last_seen[pair] > self.UDP_RESET_IDLE:
-                self.udp_pkt_counter[pair] = 0  # 重置，下一個封包會是第 0 次
-
-        # 更新時間戳
-        self.udp_last_seen[pair] = now
-
-        # === 第一層：每 N 次只處理一次 ===
-        count = self.udp_pkt_counter.get(pair, 0)
-        self.udp_pkt_counter[pair] = count + 1
-
-        if count % self.UDP_THROTTLE_N != 0:
-            if count <= 5 or count % 200 == 0:
-                print(f"[UDP THROTTLE] pair={pair} count={count} N={self.UDP_THROTTLE_N}")
-            return
+        count = self.udp_throttle.should_process(pair)
+        if count is None:
+            return  # 節流跳過
 
         # ★ 已有 active flow，不重複計算
         if pair in self.flow_registry.active_flows:
@@ -959,8 +923,8 @@ class ProjectController(app_manager.RyuApp):
           self.pkt_in_pair_counter[_pair] = self.pkt_in_pair_counter.get(_pair, 0) + 1
 
           if self.pkt_in_pair_counter[_pair] % 100 == 0:
-              _udp_count = self.udp_pkt_counter.get(_pair, 0)
-              _tcp_count = self.tcp_pkt_counter.get(_pair, 0)
+              _udp_count = self.udp_throttle.pkt_counter.get(_pair, 0)
+              _tcp_count = self.tcp_throttle.pkt_counter.get(_pair, 0)
               _has_flow  = _pair in self.flow_registry.active_flows
               print(f"[PKT-IN PAIR] {_pair[0]} -> {_pair[1]} "
                     f"total={self.pkt_in_pair_counter[_pair]} "
