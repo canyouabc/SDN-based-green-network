@@ -108,6 +108,21 @@ PACKET_ALGORITHM_IPV4 = 'DROP'      # 選項: FLOOD, DROP, LOG_ONLY, DYNAMIC_ROU
 PACKET_ALGORITHM_IPV6 = 'DROP'       # 選項: FLOOD, DROP, LOG_ONLY, DYNAMIC_ROUTING
 # =========================================================
 
+# ==================== Packet-In 未知流量處理版本 ==========
+# unknown_TCP/UDP/ICMP/IPv4/IPv6_packet 整批的完整邏輯打包成一個版本化模組
+# （比照 ROUTING_ALGORITHM 的切換慣例）。DTM.py 的 _packet_in_handler 只依
+# ethertype/協定分派（大方向），實際處理邏輯都在對應版本的檔案裡，改邏輯
+# 就直接改那個檔案，或另開 v2 用這個常數切換，不動 v1。
+# 選項: 'v1'（現行版本）
+PACKET_HANDLER = 'v1'
+# =========================================================
+
+if PACKET_HANDLER == 'v1':
+    from modules.packet_handler_v1 import PacketHandlerV1 as packet_handler_module
+    print("*** 使用 Packet Handler v1（現行版本）")
+else:
+    print("*** PACKET_HANDLER 變數設定錯誤，請檢查程式碼")
+
 # ← 條件引入延遲計算與偵測模組
 if ENABLE_DELAY_DETECTION:
     from modules.link_delay_measurement import Link_Delay_Measurement
@@ -146,7 +161,6 @@ from modules.energy_data import EnergyData
 from modules.flow_registry import FlowRegistry
 from modules.flow_stats import FlowStats
 from modules.host_discovery import HostDiscovery
-from modules.packet_algorithm import PacketAlgorithm
 from modules.packet_throttle import PacketThrottle
 from modules.path_installer import PathInstaller
 from modules.reroute_policy import ReroutePolicy
@@ -236,7 +250,11 @@ class ProjectController(app_manager.RyuApp):
         self.host_discovery = HostDiscovery(self)
         self.arp_handler = ArpHandler(self)
         self.path_installer = PathInstaller(self, FLOW_BASE_PRIORITY)
-        self.packet_algorithm = PacketAlgorithm(self, PACKET_ALGORITHM_ICMP, PACKET_ALGORITHM_IPV4, PACKET_ALGORITHM_IPV6)
+        self.packet_handler = packet_handler_module(
+            self, ENABLE_ROUTING, ROUTING_ALGORITHM,
+            PACKET_ALGORITHM_TCP, PACKET_ALGORITHM_UDP,
+            PACKET_ALGORITHM_ICMP, PACKET_ALGORITHM_IPV4, PACKET_ALGORITHM_IPV6,
+        )
         self.topology_readiness = TopologyReadiness(self)
         self.tcp_throttle = PacketThrottle(1000, 1.0, debug_log=False, label="TCP")
         self.udp_throttle = PacketThrottle(1000, 5.0, debug_log=True, label="UDP")
@@ -633,182 +651,6 @@ class ProjectController(app_manager.RyuApp):
     def install_flows_for_path(self, path, src_mac, dst_mac, priority, hard_timeout=0, idle_timeout=0):
         return self.path_installer.install_flows_for_path(path, src_mac, dst_mac, priority, hard_timeout, idle_timeout)
 
-    # ============================================
-    # 未定義流量的 Hook 處理（可擴展設計）
-    # ============================================
-    def unknown_TCP_packet(self, datapath, pkt_data):
-        eth = pkt_data.get_protocol(ethernet.ethernet)
-        if not eth:
-            return
-
-        pair = (eth.src, eth.dst)
-        count = self.tcp_throttle.should_process(pair)
-        if count is None:
-            return  # 節流跳過
-
-        # ★ 已有 active flow，不重複計算
-        if pair in self.flow_registry.active_flows:
-            return
-
-        # === 以下才是真正的處理邏輯 ===
-        self.logger.debug(f"[UNKNOWN_TCP] switch {datapath.id}, pair {pair}, count {count}")
-
-        if ENABLE_ROUTING and ROUTING_ALGORITHM == '2014':
-            try:
-                parser = datapath.ofproto_parser
-
-                match = parser.OFPMatch(eth_src=eth.src, eth_dst=eth.dst)
-                mod = parser.OFPFlowMod(
-                    datapath=datapath,
-                    priority=2,
-                    idle_timeout=5,
-                    hard_timeout=5,
-                    match=match,
-                    instructions=[]
-                )
-                datapath.send_msg(mod)
-
-                self.routing_module.calculate_and_install_path(
-                    src_mac=eth.src,
-                    dst_mac=eth.dst,
-                )
-            except Exception as e:
-                self.logger.error(f"[UNKNOWN_TCP] 路由計算失敗: {e}")
-        elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self', 'sorted'):
-            # 2020 / dijkstra 版本的路由計算邏輯
-            try:
-                parser = datapath.ofproto_parser
-                match = parser.OFPMatch(eth_src=eth.src, eth_dst=eth.dst)
-                mod = parser.OFPFlowMod(
-                    datapath=datapath,
-                    priority=1,        # 臨時 DROP，防止選路期間重複 PacketIn
-                    idle_timeout=3,
-                    hard_timeout=5,
-                    match=match,
-                    instructions=[]    # DROP
-                )
-                datapath.send_msg(mod)
-
-                src_mac = eth.src
-                dst_mac = eth.dst
-
-                if src_mac not in self.host_macs or dst_mac not in self.host_macs:
-                    return
-
-                if src_mac and dst_mac:
-                    switch_path = self.routing_module.admit_flow(src_mac, dst_mac)
-
-                    if switch_path and len(switch_path) >= 1:
-                        path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
-
-                        if path:
-                            _prio = self._get_next_flow_priority(src_mac, dst_mac)
-                            self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
-                            if (src_mac, dst_mac) in self.flow_registry.active_flows:
-                                self.flow_registry.active_flows[(src_mac, dst_mac)]['priority'] = _prio
-                            _first_sw, _first_in, _first_out = path[0]
-                            print(f"[{ROUTING_ALGORITHM} Routing TCP] {src_mac} -> {dst_mac}: path {switch_path} | sw={_first_sw} in_port={_first_in} out_port={_first_out} priority={_prio}")
-                        else:
-                            print(f"[{ROUTING_ALGORITHM} Routing TCP] 無法轉換路徑信息: {switch_path}")
-                    else:
-                        print(f"[{ROUTING_ALGORITHM} Routing TCP] 無法為 {src_mac} -> {dst_mac} 找到路徑")
-                else:
-                    print(f"[{ROUTING_ALGORITHM} Routing TCP] 無法轉換 MAC: {src_mac} -> {dst_mac}")
-
-            except Exception as e:
-                self.logger.error(f"[{ROUTING_ALGORITHM} Routing TCP] 路由計算失敗: {e}")
-            
-        else:
-            self.packet_algorithm._apply_packet_algorithm(PACKET_ALGORITHM_TCP, datapath, pkt_data, 'TCP')
-
-    def unknown_UDP_packet(self, datapath, pkt_data):
-        eth = pkt_data.get_protocol(ethernet.ethernet)
-        if not eth:
-            return
-
-        pair = (eth.src, eth.dst)
-        count = self.udp_throttle.should_process(pair)
-        if count is None:
-            return  # 節流跳過
-
-        # ★ 已有 active flow，不重複計算
-        if pair in self.flow_registry.active_flows:
-            return
-
-        # === 以下才是真正的處理邏輯 ===
-        print(f"[UNKNOWN_UDP] switch {datapath.id}, pair {pair}, count {count}")
-        self.logger.debug(f"[UNKNOWN_UDP] switch {datapath.id}, pair {pair}, count {count}")
-
-        if ENABLE_ROUTING and ROUTING_ALGORITHM == '2014':
-            try:
-                parser = datapath.ofproto_parser
-
-                match = parser.OFPMatch(eth_src=eth.src, eth_dst=eth.dst)
-                mod = parser.OFPFlowMod(
-                    datapath=datapath,
-                    priority=1,
-                    idle_timeout=5,
-                    hard_timeout=5,
-                    match=match,
-                    instructions=[]
-                )
-                datapath.send_msg(mod)
-
-                self.routing_module.calculate_and_install_path(
-                    src_mac=eth.src,
-                    dst_mac=eth.dst,
-                )
-            except Exception as e:
-                self.logger.error(f"[UNKNOWN_UDP] 路由計算失敗: {e}")
-        elif ROUTING_ALGORITHM in ('2020', 'dijkstra', 'self', 'sorted'):
-            # 2020 / dijkstra 版本的路由計算邏輯
-            try:
-                parser = datapath.ofproto_parser
-                match = parser.OFPMatch(eth_src=eth.src, eth_dst=eth.dst)
-                mod = parser.OFPFlowMod(
-                    datapath=datapath,
-                    priority=1,        # 臨時 DROP，防止選路期間重複 PacketIn
-                    idle_timeout=3,
-                    hard_timeout=5,
-                    match=match,
-                    instructions=[]    # DROP
-                )
-                datapath.send_msg(mod)
-
-                src_mac = eth.src
-                dst_mac = eth.dst
-
-                if src_mac not in self.host_macs or dst_mac not in self.host_macs:
-                    return
-
-                if src_mac and dst_mac:
-                    # 呼叫 DTM 模組選擇路徑
-                    switch_path = self.routing_module.admit_flow(src_mac, dst_mac)
-                    
-                    if switch_path and len(switch_path) >= 1:
-                            path = self.build_path_with_ports(switch_path, src_mac, dst_mac)
-
-                            if path:
-                                _prio = self._get_next_flow_priority(src_mac, dst_mac)
-                                self.install_flows_for_path(path, src_mac, dst_mac, priority=_prio, idle_timeout=5)
-                                if (src_mac, dst_mac) in self.flow_registry.active_flows:
-                                    self.flow_registry.active_flows[(src_mac, dst_mac)]['priority'] = _prio
-                                _first_sw, _first_in, _first_out = path[0]
-                                print(f"[{ROUTING_ALGORITHM} Routing UDP] {src_mac} -> {dst_mac}: path {switch_path} | sw={_first_sw} in_port={_first_in} out_port={_first_out} priority={_prio}")
-                            else:
-                                print(f"[{ROUTING_ALGORITHM} Routing UDP] 無法轉換路徑信息: {switch_path}")
-                    else:
-                        print(f"[{ROUTING_ALGORITHM} Routing UDP] 無法為 {src_mac} -> {dst_mac} 找到路徑")
-                else:
-                    print(f"[{ROUTING_ALGORITHM} Routing UDP] 無法轉換 MAC: {src_mac} -> {dst_mac}")
-
-            except Exception as e:
-                import traceback
-                print(f"[{ROUTING_ALGORITHM} Routing UDP] 路由計算失敗: {e}")
-                traceback.print_exc()
-        else:
-            self.packet_algorithm._apply_packet_algorithm(PACKET_ALGORITHM_UDP, datapath, pkt_data, 'UDP')
-
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures , CONFIG_DISPATCHER)
     def switch_features_handler(self , ev):
 
@@ -956,29 +798,29 @@ class ProjectController(app_manager.RyuApp):
           if ipv4_pkt.proto == 6:  # TCP protocol number
             #tcp_pkt = pkt.get_protocol(tcp.tcp)
             #if tcp_pkt is not None:
-            self.unknown_TCP_packet(datapath, pkt)
+            self.packet_handler.unknown_TCP_packet(datapath, pkt)
             return
           # 檢測 UDP
           elif ipv4_pkt.proto == 17:  # UDP protocol number
             #udp_pkt = pkt.get_protocol(udp.udp)
             #if udp_pkt is not None:
             #print("UDP packet detected")
-            self.unknown_UDP_packet(datapath, pkt)
+            self.packet_handler.unknown_UDP_packet(datapath, pkt)
             return
           # 檢測 ICMP
           elif ipv4_pkt.proto == 1:  # ICMP protocol number
             #icmp_pkt = pkt.get_protocol(icmp.icmp)
             #if icmp_pkt is not None:
-            self.packet_algorithm.unknown_ICMP_packet(datapath, pkt)
+            self.packet_handler.unknown_ICMP_packet(datapath, pkt)
             return
           else:
             # 其他 IPv4 協議
-            self.packet_algorithm.unknown_IPv4_packet(datapath, pkt)
+            self.packet_handler.unknown_IPv4_packet(datapath, pkt)
             return
 
       # 檢測 IPv6
       if eth.ethertype == ether_types.ETH_TYPE_IPV6:
-        self.packet_algorithm.unknown_IPv6_packet(datapath, pkt)
+        self.packet_handler.unknown_IPv6_packet(datapath, pkt)
         return
       
       if eth.ethertype == 35020:
