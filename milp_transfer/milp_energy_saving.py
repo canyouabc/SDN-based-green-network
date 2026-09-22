@@ -96,22 +96,43 @@ def load_link_energy(filepath):
     return data
 
 
+# grid_2x2/grid_3x3/grid_4x4/grid(5x5) 只有外圍 switch 接 host（grid_4x4_allhosts
+# 才是全部 switch 都接 host），host 編號是照 grid_topo_*.py 的外圍走訪順序分配，
+# 不是 switch dpid 順序，見 gen_kshort_generic.py 的 border_host_switch_map()——
+# 這裡重複同一套公式，避免 milp_energy_saving.py 額外依賴 Auto_routing_k_short。
+_BORDER_GRID_N = {'grid_2x2': 2, 'grid_3x3': 3, 'grid_4x4': 4, 'grid': 5, 'grid_5x5': 5}
+
+
+def _border_host_switch_map(n_grid):
+    def sw_id(r, c):
+        return (r - 1) * n_grid + c
+
+    border = []
+    border += [(1, c) for c in range(1, n_grid + 1)]
+    border += [(r, n_grid) for r in range(2, n_grid)]
+    border += [(n_grid, c) for c in range(n_grid, 0, -1)]
+    border += [(r, 1) for r in range(n_grid - 1, 1, -1)]
+    return {idx + 1: sw_id(r, c) for idx, (r, c) in enumerate(border)}
+
+
 def host_to_switch(host_name, topo=None):
     """host 名稱（如 'h5'）→ switch dpid。
 
-    grid／GEANT 系列 host:switch 是 1:1，h{n} 對應的 switch dpid 就是 n。
-    但 cap 拓樸（cap_topo.py）host:switch 不是 1:1——45 個 switch 裡只有
-    27 個邊緣 switch（21 個 access + 6 個 wan）承載 54 個 host，每個邊緣
-    switch 接 HOSTS_PER_EDGE=2 個 host，所以 h{n} 必須依 cap_topo.py 的
-    實際佈線公式換算，不能直接拿 n 當 dpid（h47 的 dpid 是 21，不是 47）。
+    grid_4x4_allhosts／GEANT 系列 host:switch 是 1:1，h{n} 對應的 switch dpid
+    就是 n。但 cap、grid_2x2/3x3/4x4/grid(5x5) 都不是 1:1：
+      - cap（cap_topo.py）：45 個 switch 裡只有 27 個邊緣 switch 承載 54 個
+        host，每個邊緣 switch 接 HOSTS_PER_EDGE=2 個 host。
+      - grid_2x2/3x3/4x4/grid（grid_topo_*.py）：只有外圍 switch 接 host，
+        host 編號是外圍走訪順序，不是 dpid 順序（h12 在 grid_4x4 的 dpid
+        是 5，不是 12——2026-09-23 發現，之前一直用錯）。
     """
     n = int(host_name[1:])
     if topo == 'cap':
-        # cap_topo.py：access=dpid 25~45（h1~h42，每2個host一組），
-        #             wan=dpid 19~24（h43~h54，每2個host一組）
         if n <= 42:
             return 25 + (n - 1) // 2
         return 19 + (n - 43) // 2
+    if topo in _BORDER_GRID_N:
+        return _border_host_switch_map(_BORDER_GRID_N[topo])[n]
     return n
 
 

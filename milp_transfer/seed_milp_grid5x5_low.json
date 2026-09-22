@@ -1,5 +1,5 @@
 {
-  "source": "\u96a8\u6a5f\u7522\u751f\uff08seed=42\uff09\uff0c\u6bcf batch 30 \u689d\u4e0d\u91cd\u8907 host pair\uff0c\u983b\u5bec\u5747\u52fb\u5206\u5e03\u65bc [0.1, 0.5] Mbps",
+  "source": "\u96a8\u6a5f\u7522\u751f\uff08seed=42\uff09\uff0c\u6bcf batch 3 \u689d\u4e0d\u91cd\u8907 host pair\uff0c\u983b\u5bec\u5747\u52fb\u5206\u5e03\u65bc [0.1, 0.5] Mbps",
   "num_hosts": 16,
   "experiment_duration": 150,
   "flow_duration": 150,
@@ -12,181 +12,19 @@
           "interval": 0.0,
           "src": "h11",
           "dst": "h15",
-          "bw_mbps": 0.2678
+          "bw_mbps": 0.3966
         },
         {
           "interval": 0.0,
           "src": "h2",
           "dst": "h15",
-          "bw_mbps": 0.2797
+          "bw_mbps": 0.198
         },
         {
           "interval": 0.0,
           "src": "h1",
           "dst": "h8",
-          "bw_mbps": 0.2113
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h10",
-          "bw_mbps": 0.4477
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h12",
-          "bw_mbps": 0.4035
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h3",
-          "bw_mbps": 0.1639
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h14",
-          "bw_mbps": 0.269
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h7",
-          "bw_mbps": 0.2111
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h9",
-          "bw_mbps": 0.1861
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h13",
-          "bw_mbps": 0.4054
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h9",
-          "bw_mbps": 0.1409
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h12",
-          "bw_mbps": 0.252
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h5",
-          "bw_mbps": 0.2436
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h9",
-          "bw_mbps": 0.2376
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h2",
-          "bw_mbps": 0.2058
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h4",
-          "bw_mbps": 0.1174
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h10",
-          "bw_mbps": 0.2838
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h9",
-          "bw_mbps": 0.1499
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h10",
-          "bw_mbps": 0.4689
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h12",
-          "bw_mbps": 0.1315
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h16",
-          "bw_mbps": 0.2173
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h11",
-          "bw_mbps": 0.3515
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h5",
-          "bw_mbps": 0.4542
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h13",
-          "bw_mbps": 0.2447
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h9",
-          "bw_mbps": 0.1769
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h7",
-          "bw_mbps": 0.1278
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h4",
-          "bw_mbps": 0.3645
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h2",
-          "bw_mbps": 0.4092
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h16",
-          "bw_mbps": 0.4941
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h3",
-          "bw_mbps": 0.4421
+          "bw_mbps": 0.1558
         }
       ]
     },
@@ -195,183 +33,21 @@
       "flows": [
         {
           "interval": 0.0,
-          "src": "h15",
-          "dst": "h12",
-          "bw_mbps": 0.3228
-        },
-        {
-          "interval": 0.0,
           "src": "h2",
-          "dst": "h12",
-          "bw_mbps": 0.3738
+          "dst": "h13",
+          "bw_mbps": 0.4569
         },
         {
           "interval": 0.0,
-          "src": "h7",
+          "src": "h12",
           "dst": "h9",
-          "bw_mbps": 0.4371
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h13",
-          "bw_mbps": 0.4104
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h13",
-          "bw_mbps": 0.1916
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h14",
-          "bw_mbps": 0.1128
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h4",
-          "bw_mbps": 0.2262
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h4",
-          "bw_mbps": 0.2071
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h13",
-          "bw_mbps": 0.1844
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h5",
-          "bw_mbps": 0.4772
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h1",
-          "bw_mbps": 0.4505
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h10",
-          "bw_mbps": 0.2259
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h7",
-          "bw_mbps": 0.3622
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h10",
-          "bw_mbps": 0.2583
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h16",
-          "bw_mbps": 0.4658
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h10",
-          "bw_mbps": 0.2835
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h1",
-          "bw_mbps": 0.206
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h5",
-          "bw_mbps": 0.1987
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h6",
-          "bw_mbps": 0.3245
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h10",
-          "bw_mbps": 0.2051
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h15",
-          "bw_mbps": 0.3338
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h2",
-          "bw_mbps": 0.4591
+          "bw_mbps": 0.1348
         },
         {
           "interval": 0.0,
           "src": "h13",
-          "dst": "h7",
-          "bw_mbps": 0.2598
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h3",
-          "bw_mbps": 0.1877
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h7",
-          "bw_mbps": 0.499
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h15",
-          "bw_mbps": 0.3038
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h13",
-          "bw_mbps": 0.1364
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h11",
-          "bw_mbps": 0.1188
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h15",
-          "bw_mbps": 0.1439
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h13",
-          "bw_mbps": 0.351
+          "dst": "h10",
+          "bw_mbps": 0.2688
         }
       ]
     },
@@ -380,183 +56,21 @@
       "flows": [
         {
           "interval": 0.0,
-          "src": "h14",
-          "dst": "h8",
-          "bw_mbps": 0.4815
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h10",
-          "bw_mbps": 0.4503
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h4",
-          "bw_mbps": 0.2054
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h3",
-          "bw_mbps": 0.3002
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h3",
-          "bw_mbps": 0.1715
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h10",
-          "bw_mbps": 0.4651
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
+          "src": "h1",
           "dst": "h9",
-          "bw_mbps": 0.4482
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h12",
-          "bw_mbps": 0.2194
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h16",
-          "bw_mbps": 0.3556
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h1",
-          "bw_mbps": 0.3436
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h6",
-          "bw_mbps": 0.1611
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h7",
-          "bw_mbps": 0.405
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h11",
-          "bw_mbps": 0.3158
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h4",
-          "bw_mbps": 0.4115
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h14",
-          "bw_mbps": 0.3121
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h5",
-          "bw_mbps": 0.1002
+          "bw_mbps": 0.1931
         },
         {
           "interval": 0.0,
           "src": "h2",
-          "dst": "h16",
-          "bw_mbps": 0.2297
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h1",
-          "bw_mbps": 0.1078
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h3",
-          "bw_mbps": 0.4716
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h14",
-          "bw_mbps": 0.4515
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
           "dst": "h10",
-          "bw_mbps": 0.4327
+          "bw_mbps": 0.3408
         },
         {
           "interval": 0.0,
-          "src": "h14",
-          "dst": "h2",
-          "bw_mbps": 0.223
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h16",
-          "bw_mbps": 0.1232
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h14",
-          "bw_mbps": 0.4512
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h15",
-          "bw_mbps": 0.4788
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h1",
-          "bw_mbps": 0.1343
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h7",
-          "bw_mbps": 0.2944
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
+          "src": "h4",
           "dst": "h12",
-          "bw_mbps": 0.1277
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h13",
-          "bw_mbps": 0.4042
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h2",
-          "bw_mbps": 0.4063
+          "bw_mbps": 0.3245
         }
       ]
     },
@@ -565,183 +79,21 @@
       "flows": [
         {
           "interval": 0.0,
-          "src": "h3",
-          "dst": "h4",
-          "bw_mbps": 0.1084
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h4",
-          "bw_mbps": 0.3216
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h2",
-          "bw_mbps": 0.3354
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h6",
-          "bw_mbps": 0.1029
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h14",
-          "bw_mbps": 0.3831
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h9",
-          "bw_mbps": 0.1235
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h1",
-          "bw_mbps": 0.127
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h14",
-          "bw_mbps": 0.1126
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h6",
-          "bw_mbps": 0.2322
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h4",
-          "bw_mbps": 0.3057
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h11",
-          "bw_mbps": 0.2114
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h4",
-          "bw_mbps": 0.2942
-        },
-        {
-          "interval": 0.0,
           "src": "h13",
-          "dst": "h15",
-          "bw_mbps": 0.3157
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h7",
-          "bw_mbps": 0.3893
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h13",
-          "bw_mbps": 0.453
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h8",
-          "bw_mbps": 0.3305
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h3",
-          "bw_mbps": 0.1972
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h5",
-          "bw_mbps": 0.2892
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h14",
-          "bw_mbps": 0.2628
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h7",
-          "bw_mbps": 0.1377
+          "dst": "h4",
+          "bw_mbps": 0.318
         },
         {
           "interval": 0.0,
           "src": "h12",
           "dst": "h2",
-          "bw_mbps": 0.3636
+          "bw_mbps": 0.1882
         },
         {
           "interval": 0.0,
-          "src": "h7",
-          "dst": "h6",
-          "bw_mbps": 0.2417
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h9",
-          "bw_mbps": 0.2644
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h14",
-          "bw_mbps": 0.4455
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h12",
-          "bw_mbps": 0.1217
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h1",
-          "bw_mbps": 0.3614
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h4",
-          "bw_mbps": 0.3585
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h14",
-          "bw_mbps": 0.1242
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h3",
-          "bw_mbps": 0.3913
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h13",
-          "bw_mbps": 0.4202
+          "src": "h12",
+          "dst": "h16",
+          "bw_mbps": 0.3357
         }
       ]
     },
@@ -750,183 +102,21 @@
       "flows": [
         {
           "interval": 0.0,
-          "src": "h2",
-          "dst": "h14",
-          "bw_mbps": 0.2943
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h4",
-          "bw_mbps": 0.1855
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h6",
-          "bw_mbps": 0.2604
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h5",
-          "bw_mbps": 0.1235
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h3",
-          "bw_mbps": 0.2516
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h11",
-          "bw_mbps": 0.4941
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h7",
-          "bw_mbps": 0.2061
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h4",
-          "bw_mbps": 0.4136
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h2",
-          "bw_mbps": 0.282
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h13",
-          "bw_mbps": 0.2692
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h15",
-          "bw_mbps": 0.4829
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h14",
-          "bw_mbps": 0.4982
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h14",
-          "bw_mbps": 0.3223
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h6",
-          "bw_mbps": 0.3874
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h10",
-          "bw_mbps": 0.1619
-        },
-        {
-          "interval": 0.0,
           "src": "h14",
-          "dst": "h12",
-          "bw_mbps": 0.2187
+          "dst": "h13",
+          "bw_mbps": 0.4035
         },
         {
           "interval": 0.0,
           "src": "h15",
-          "dst": "h11",
-          "bw_mbps": 0.4875
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h10",
-          "bw_mbps": 0.3317
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h6",
-          "bw_mbps": 0.3169
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h12",
-          "bw_mbps": 0.3992
+          "dst": "h13",
+          "bw_mbps": 0.1639
         },
         {
           "interval": 0.0,
           "src": "h1",
-          "dst": "h14",
-          "bw_mbps": 0.1229
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h2",
-          "bw_mbps": 0.3337
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h4",
-          "bw_mbps": 0.3011
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h5",
-          "bw_mbps": 0.4411
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h5",
-          "bw_mbps": 0.163
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h10",
-          "bw_mbps": 0.4843
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h14",
-          "bw_mbps": 0.132
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h1",
-          "bw_mbps": 0.1743
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h14",
-          "bw_mbps": 0.338
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h16",
-          "bw_mbps": 0.3701
+          "dst": "h3",
+          "bw_mbps": 0.269
         }
       ]
     },
@@ -936,182 +126,20 @@
         {
           "interval": 0.0,
           "src": "h5",
-          "dst": "h1",
-          "bw_mbps": 0.2265
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h15",
-          "bw_mbps": 0.4007
+          "dst": "h13",
+          "bw_mbps": 0.4829
         },
         {
           "interval": 0.0,
           "src": "h3",
-          "dst": "h1",
-          "bw_mbps": 0.129
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h3",
-          "bw_mbps": 0.2833
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h12",
-          "bw_mbps": 0.4994
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h4",
-          "bw_mbps": 0.4984
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h15",
-          "bw_mbps": 0.1293
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h3",
-          "bw_mbps": 0.1853
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h12",
-          "bw_mbps": 0.2061
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h9",
-          "bw_mbps": 0.4733
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h7",
-          "bw_mbps": 0.4523
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h3",
-          "bw_mbps": 0.4517
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h4",
-          "bw_mbps": 0.2478
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h16",
-          "bw_mbps": 0.1631
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
           "dst": "h11",
-          "bw_mbps": 0.4335
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h15",
-          "bw_mbps": 0.3814
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h7",
-          "bw_mbps": 0.3447
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h8",
-          "bw_mbps": 0.4949
+          "bw_mbps": 0.2346
         },
         {
           "interval": 0.0,
           "src": "h4",
-          "dst": "h9",
-          "bw_mbps": 0.3616
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h7",
-          "bw_mbps": 0.1031
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h4",
-          "bw_mbps": 0.4268
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h14",
-          "bw_mbps": 0.2198
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h2",
-          "bw_mbps": 0.3654
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h9",
-          "bw_mbps": 0.4756
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h13",
-          "bw_mbps": 0.1537
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h5",
-          "bw_mbps": 0.1462
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h11",
-          "bw_mbps": 0.1428
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h1",
-          "bw_mbps": 0.3213
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h2",
-          "bw_mbps": 0.2089
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h14",
-          "bw_mbps": 0.3419
+          "dst": "h12",
+          "bw_mbps": 0.1371
         }
       ]
     },
@@ -1120,183 +148,21 @@
       "flows": [
         {
           "interval": 0.0,
-          "src": "h13",
-          "dst": "h4",
-          "bw_mbps": 0.3244
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h14",
-          "bw_mbps": 0.1447
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h9",
-          "bw_mbps": 0.478
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h11",
-          "bw_mbps": 0.3764
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h14",
-          "bw_mbps": 0.1596
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h9",
-          "bw_mbps": 0.1144
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h9",
-          "bw_mbps": 0.2477
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h11",
-          "bw_mbps": 0.321
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h6",
-          "bw_mbps": 0.2719
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h6",
-          "bw_mbps": 0.1167
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h7",
-          "bw_mbps": 0.2459
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h15",
-          "bw_mbps": 0.4732
-        },
-        {
-          "interval": 0.0,
           "src": "h2",
-          "dst": "h10",
-          "bw_mbps": 0.4889
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
           "dst": "h11",
-          "bw_mbps": 0.116
+          "bw_mbps": 0.2376
         },
         {
           "interval": 0.0,
-          "src": "h8",
-          "dst": "h4",
-          "bw_mbps": 0.2431
+          "src": "h7",
+          "dst": "h2",
+          "bw_mbps": 0.2058
         },
         {
           "interval": 0.0,
           "src": "h15",
-          "dst": "h3",
-          "bw_mbps": 0.3728
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h12",
-          "bw_mbps": 0.3668
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h13",
-          "bw_mbps": 0.2415
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h2",
-          "bw_mbps": 0.324
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h12",
-          "bw_mbps": 0.4499
-        },
-        {
-          "interval": 0.0,
-          "src": "h14",
-          "dst": "h3",
-          "bw_mbps": 0.4895
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h5",
-          "bw_mbps": 0.3998
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h15",
-          "bw_mbps": 0.4703
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h9",
-          "bw_mbps": 0.1947
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h13",
-          "bw_mbps": 0.165
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h10",
-          "bw_mbps": 0.42
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h10",
-          "bw_mbps": 0.1708
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
           "dst": "h7",
-          "bw_mbps": 0.2649
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h1",
-          "bw_mbps": 0.1717
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h5",
-          "bw_mbps": 0.4698
+          "bw_mbps": 0.1174
         }
       ]
     },
@@ -1305,183 +171,21 @@
       "flows": [
         {
           "interval": 0.0,
-          "src": "h14",
-          "dst": "h6",
-          "bw_mbps": 0.364
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h14",
-          "bw_mbps": 0.2594
-        },
-        {
-          "interval": 0.0,
           "src": "h8",
-          "dst": "h1",
-          "bw_mbps": 0.2114
+          "dst": "h14",
+          "bw_mbps": 0.4892
         },
         {
           "interval": 0.0,
-          "src": "h14",
-          "dst": "h11",
-          "bw_mbps": 0.1278
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h7",
-          "bw_mbps": 0.4093
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h12",
-          "bw_mbps": 0.2405
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h9",
-          "bw_mbps": 0.3038
-        },
-        {
-          "interval": 0.0,
-          "src": "h14",
-          "dst": "h13",
-          "bw_mbps": 0.3718
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h4",
-          "bw_mbps": 0.4375
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h10",
-          "bw_mbps": 0.2325
+          "src": "h10",
+          "dst": "h3",
+          "bw_mbps": 0.2514
         },
         {
           "interval": 0.0,
           "src": "h3",
-          "dst": "h12",
-          "bw_mbps": 0.111
-        },
-        {
-          "interval": 0.0,
-          "src": "h14",
-          "dst": "h7",
-          "bw_mbps": 0.4508
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h16",
-          "bw_mbps": 0.2045
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h14",
-          "bw_mbps": 0.3322
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h9",
-          "bw_mbps": 0.4934
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h14",
-          "bw_mbps": 0.1153
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h11",
-          "bw_mbps": 0.3386
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h10",
-          "bw_mbps": 0.2383
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h1",
-          "bw_mbps": 0.4146
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h13",
-          "bw_mbps": 0.2746
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h8",
-          "bw_mbps": 0.4937
-        },
-        {
-          "interval": 0.0,
-          "src": "h14",
-          "dst": "h16",
-          "bw_mbps": 0.1463
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h14",
-          "bw_mbps": 0.4598
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h16",
-          "bw_mbps": 0.176
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h4",
-          "bw_mbps": 0.1178
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h1",
-          "bw_mbps": 0.2744
-        },
-        {
-          "interval": 0.0,
-          "src": "h14",
-          "dst": "h9",
-          "bw_mbps": 0.308
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h15",
-          "bw_mbps": 0.4226
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h14",
-          "bw_mbps": 0.3747
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h8",
-          "bw_mbps": 0.4761
+          "dst": "h2",
+          "bw_mbps": 0.3208
         }
       ]
     },
@@ -1490,183 +194,21 @@
       "flows": [
         {
           "interval": 0.0,
-          "src": "h13",
-          "dst": "h9",
-          "bw_mbps": 0.3993
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h7",
-          "bw_mbps": 0.1696
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h7",
-          "bw_mbps": 0.3276
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h4",
-          "bw_mbps": 0.2624
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h6",
-          "bw_mbps": 0.4335
-        },
-        {
-          "interval": 0.0,
-          "src": "h2",
-          "dst": "h4",
-          "bw_mbps": 0.2215
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h6",
-          "bw_mbps": 0.1841
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h11",
-          "bw_mbps": 0.4143
+          "src": "h15",
+          "dst": "h3",
+          "bw_mbps": 0.4542
         },
         {
           "interval": 0.0,
           "src": "h11",
-          "dst": "h10",
-          "bw_mbps": 0.3427
+          "dst": "h12",
+          "bw_mbps": 0.2447
         },
         {
           "interval": 0.0,
-          "src": "h6",
-          "dst": "h7",
-          "bw_mbps": 0.2289
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h5",
-          "bw_mbps": 0.2767
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h8",
-          "bw_mbps": 0.3703
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h2",
-          "bw_mbps": 0.3045
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h5",
-          "bw_mbps": 0.4175
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h2",
-          "bw_mbps": 0.4839
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h11",
-          "bw_mbps": 0.3944
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h5",
-          "bw_mbps": 0.3635
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
+          "src": "h11",
           "dst": "h9",
-          "bw_mbps": 0.2135
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h16",
-          "bw_mbps": 0.3655
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h10",
-          "bw_mbps": 0.3477
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h15",
-          "bw_mbps": 0.1374
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h15",
-          "bw_mbps": 0.4808
-        },
-        {
-          "interval": 0.0,
-          "src": "h6",
-          "dst": "h1",
-          "bw_mbps": 0.1939
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h7",
-          "bw_mbps": 0.2242
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h4",
-          "bw_mbps": 0.4226
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h6",
-          "bw_mbps": 0.1589
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h3",
-          "bw_mbps": 0.1185
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h13",
-          "bw_mbps": 0.4936
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h9",
-          "bw_mbps": 0.3445
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h9",
-          "bw_mbps": 0.4074
+          "bw_mbps": 0.1769
         }
       ]
     },
@@ -1675,183 +217,21 @@
       "flows": [
         {
           "interval": 0.0,
-          "src": "h8",
-          "dst": "h13",
-          "bw_mbps": 0.1997
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h2",
-          "bw_mbps": 0.4393
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h2",
-          "bw_mbps": 0.2826
-        },
-        {
-          "interval": 0.0,
-          "src": "h11",
-          "dst": "h13",
-          "bw_mbps": 0.4206
-        },
-        {
-          "interval": 0.0,
-          "src": "h10",
-          "dst": "h14",
-          "bw_mbps": 0.367
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h6",
-          "bw_mbps": 0.4952
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h4",
-          "bw_mbps": 0.3382
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h15",
-          "bw_mbps": 0.48
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h10",
-          "bw_mbps": 0.4566
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h7",
-          "bw_mbps": 0.3451
-        },
-        {
-          "interval": 0.0,
-          "src": "h7",
-          "dst": "h14",
-          "bw_mbps": 0.3877
-        },
-        {
-          "interval": 0.0,
-          "src": "h5",
-          "dst": "h3",
-          "bw_mbps": 0.3019
-        },
-        {
-          "interval": 0.0,
-          "src": "h3",
-          "dst": "h9",
-          "bw_mbps": 0.4322
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h3",
-          "bw_mbps": 0.3191
-        },
-        {
-          "interval": 0.0,
-          "src": "h12",
-          "dst": "h13",
-          "bw_mbps": 0.4589
-        },
-        {
-          "interval": 0.0,
-          "src": "h1",
-          "dst": "h3",
-          "bw_mbps": 0.3975
-        },
-        {
-          "interval": 0.0,
-          "src": "h13",
-          "dst": "h14",
-          "bw_mbps": 0.2899
-        },
-        {
-          "interval": 0.0,
-          "src": "h15",
-          "dst": "h11",
-          "bw_mbps": 0.2037
-        },
-        {
-          "interval": 0.0,
-          "src": "h14",
-          "dst": "h3",
-          "bw_mbps": 0.1989
-        },
-        {
-          "interval": 0.0,
           "src": "h2",
-          "dst": "h14",
-          "bw_mbps": 0.3551
-        },
-        {
-          "interval": 0.0,
-          "src": "h14",
-          "dst": "h5",
-          "bw_mbps": 0.4063
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
           "dst": "h4",
-          "bw_mbps": 0.3085
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h13",
-          "bw_mbps": 0.3507
-        },
-        {
-          "interval": 0.0,
-          "src": "h4",
-          "dst": "h1",
-          "bw_mbps": 0.2098
-        },
-        {
-          "interval": 0.0,
-          "src": "h14",
-          "dst": "h11",
-          "bw_mbps": 0.131
-        },
-        {
-          "interval": 0.0,
-          "src": "h16",
-          "dst": "h8",
-          "bw_mbps": 0.2143
-        },
-        {
-          "interval": 0.0,
-          "src": "h9",
-          "dst": "h14",
-          "bw_mbps": 0.2087
-        },
-        {
-          "interval": 0.0,
-          "src": "h8",
-          "dst": "h15",
-          "bw_mbps": 0.2279
+          "bw_mbps": 0.1912
         },
         {
           "interval": 0.0,
           "src": "h1",
-          "dst": "h14",
-          "bw_mbps": 0.3161
+          "dst": "h13",
+          "bw_mbps": 0.2158
         },
         {
           "interval": 0.0,
-          "src": "h10",
-          "dst": "h8",
-          "bw_mbps": 0.1553
+          "src": "h12",
+          "dst": "h5",
+          "bw_mbps": 0.1319
         }
       ]
     }
