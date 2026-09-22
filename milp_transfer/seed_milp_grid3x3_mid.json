@@ -1,0 +1,959 @@
+{
+  "source": "\u96a8\u6a5f\u7522\u751f\uff08seed=42\uff09\uff0c\u6bcf batch 15 \u689d\u4e0d\u91cd\u8907 host pair\uff0c\u983b\u5bec\u5747\u52fb\u5206\u5e03\u65bc [0.1, 0.5] Mbps",
+  "num_hosts": 8,
+  "experiment_duration": 150,
+  "flow_duration": 150,
+  "num_batches": 10,
+  "batches": [
+    {
+      "batch_id": 1,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h7",
+          "bw_mbps": 0.1127
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h1",
+          "bw_mbps": 0.1375
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h3",
+          "bw_mbps": 0.1931
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h6",
+          "bw_mbps": 0.3408
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h5",
+          "bw_mbps": 0.3245
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h2",
+          "bw_mbps": 0.3864
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h1",
+          "bw_mbps": 0.3805
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h3",
+          "bw_mbps": 0.2678
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h4",
+          "bw_mbps": 0.2797
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h8",
+          "bw_mbps": 0.2113
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h2",
+          "bw_mbps": 0.4477
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h8",
+          "bw_mbps": 0.4035
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h7",
+          "bw_mbps": 0.1639
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h3",
+          "bw_mbps": 0.269
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h8",
+          "bw_mbps": 0.2111
+        }
+      ]
+    },
+    {
+      "batch_id": 2,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h8",
+          "bw_mbps": 0.4892
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h8",
+          "bw_mbps": 0.2514
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h1",
+          "bw_mbps": 0.3208
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h8",
+          "bw_mbps": 0.4318
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h7",
+          "bw_mbps": 0.3474
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h5",
+          "bw_mbps": 0.4447
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h4",
+          "bw_mbps": 0.3309
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h2",
+          "bw_mbps": 0.3818
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h6",
+          "bw_mbps": 0.1183
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h4",
+          "bw_mbps": 0.1912
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h4",
+          "bw_mbps": 0.2158
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h4",
+          "bw_mbps": 0.1319
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h2",
+          "bw_mbps": 0.1931
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h8",
+          "bw_mbps": 0.1404
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h1",
+          "bw_mbps": 0.2112
+        }
+      ]
+    },
+    {
+      "batch_id": 3,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h7",
+          "bw_mbps": 0.1685
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h5",
+          "bw_mbps": 0.3917
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h3",
+          "bw_mbps": 0.1654
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h5",
+          "bw_mbps": 0.2518
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h6",
+          "bw_mbps": 0.4958
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h2",
+          "bw_mbps": 0.356
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h8",
+          "bw_mbps": 0.3228
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h1",
+          "bw_mbps": 0.3738
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h5",
+          "bw_mbps": 0.4371
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h3",
+          "bw_mbps": 0.4104
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h2",
+          "bw_mbps": 0.1916
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h8",
+          "bw_mbps": 0.1128
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h6",
+          "bw_mbps": 0.2262
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h4",
+          "bw_mbps": 0.2071
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h7",
+          "bw_mbps": 0.1844
+        }
+      ]
+    },
+    {
+      "batch_id": 4,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h2",
+          "bw_mbps": 0.2051
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h4",
+          "bw_mbps": 0.3338
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h8",
+          "bw_mbps": 0.4591
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h8",
+          "bw_mbps": 0.2598
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h8",
+          "bw_mbps": 0.1877
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h4",
+          "bw_mbps": 0.499
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h6",
+          "bw_mbps": 0.3038
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h3",
+          "bw_mbps": 0.1364
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h2",
+          "bw_mbps": 0.1188
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h4",
+          "bw_mbps": 0.1439
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h4",
+          "bw_mbps": 0.351
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h3",
+          "bw_mbps": 0.4168
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h2",
+          "bw_mbps": 0.2689
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h1",
+          "bw_mbps": 0.1254
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h8",
+          "bw_mbps": 0.2526
+        }
+      ]
+    },
+    {
+      "batch_id": 5,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h2",
+          "bw_mbps": 0.2739
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h7",
+          "bw_mbps": 0.2815
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h4",
+          "bw_mbps": 0.4815
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h1",
+          "bw_mbps": 0.4503
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h2",
+          "bw_mbps": 0.2054
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h2",
+          "bw_mbps": 0.3002
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h5",
+          "bw_mbps": 0.1715
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h1",
+          "bw_mbps": 0.4651
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h2",
+          "bw_mbps": 0.4482
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h8",
+          "bw_mbps": 0.2194
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h5",
+          "bw_mbps": 0.3556
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h8",
+          "bw_mbps": 0.3436
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h1",
+          "bw_mbps": 0.1611
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h8",
+          "bw_mbps": 0.405
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h6",
+          "bw_mbps": 0.3158
+        }
+      ]
+    },
+    {
+      "batch_id": 6,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h1",
+          "bw_mbps": 0.1343
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h7",
+          "bw_mbps": 0.2944
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h2",
+          "bw_mbps": 0.1277
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h4",
+          "bw_mbps": 0.4042
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h8",
+          "bw_mbps": 0.4063
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h4",
+          "bw_mbps": 0.1514
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h3",
+          "bw_mbps": 0.2901
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h1",
+          "bw_mbps": 0.3199
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h3",
+          "bw_mbps": 0.206
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h7",
+          "bw_mbps": 0.449
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h2",
+          "bw_mbps": 0.2693
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h5",
+          "bw_mbps": 0.1847
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h4",
+          "bw_mbps": 0.3157
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h2",
+          "bw_mbps": 0.392
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h7",
+          "bw_mbps": 0.1805
+        }
+      ]
+    },
+    {
+      "batch_id": 7,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h7",
+          "bw_mbps": 0.3216
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h6",
+          "bw_mbps": 0.3354
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h1",
+          "bw_mbps": 0.1029
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h8",
+          "bw_mbps": 0.3831
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h3",
+          "bw_mbps": 0.1235
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h1",
+          "bw_mbps": 0.127
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h7",
+          "bw_mbps": 0.1126
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h2",
+          "bw_mbps": 0.2322
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h1",
+          "bw_mbps": 0.3057
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h2",
+          "bw_mbps": 0.2114
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h1",
+          "bw_mbps": 0.2942
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h6",
+          "bw_mbps": 0.3157
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h1",
+          "bw_mbps": 0.3893
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h3",
+          "bw_mbps": 0.453
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h3",
+          "bw_mbps": 0.3305
+        }
+      ]
+    },
+    {
+      "batch_id": 8,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h2",
+          "bw_mbps": 0.3693
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h2",
+          "bw_mbps": 0.4937
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h3",
+          "bw_mbps": 0.1394
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h3",
+          "bw_mbps": 0.261
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h7",
+          "bw_mbps": 0.2357
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h7",
+          "bw_mbps": 0.4447
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h8",
+          "bw_mbps": 0.1995
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h1",
+          "bw_mbps": 0.1761
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h1",
+          "bw_mbps": 0.2794
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h8",
+          "bw_mbps": 0.2688
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h2",
+          "bw_mbps": 0.2114
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h5",
+          "bw_mbps": 0.1999
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h4",
+          "bw_mbps": 0.4693
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h2",
+          "bw_mbps": 0.2773
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h5",
+          "bw_mbps": 0.4445
+        }
+      ]
+    },
+    {
+      "batch_id": 9,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h1",
+          "bw_mbps": 0.461
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h8",
+          "bw_mbps": 0.1659
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h5",
+          "bw_mbps": 0.1009
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h8",
+          "bw_mbps": 0.2562
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h8",
+          "bw_mbps": 0.4706
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h2",
+          "bw_mbps": 0.4141
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h7",
+          "bw_mbps": 0.2141
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h8",
+          "bw_mbps": 0.3786
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h2",
+          "bw_mbps": 0.3922
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h5",
+          "bw_mbps": 0.4133
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h7",
+          "bw_mbps": 0.3647
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h4",
+          "bw_mbps": 0.2947
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h3",
+          "bw_mbps": 0.176
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h8",
+          "bw_mbps": 0.1871
+        },
+        {
+          "interval": 0.0,
+          "src": "h4",
+          "dst": "h6",
+          "bw_mbps": 0.1234
+        }
+      ]
+    },
+    {
+      "batch_id": 10,
+      "flows": [
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h6",
+          "bw_mbps": 0.4405
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h8",
+          "bw_mbps": 0.1274
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h5",
+          "bw_mbps": 0.1272
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h7",
+          "bw_mbps": 0.4447
+        },
+        {
+          "interval": 0.0,
+          "src": "h3",
+          "dst": "h8",
+          "bw_mbps": 0.2615
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h5",
+          "bw_mbps": 0.4766
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h2",
+          "bw_mbps": 0.3279
+        },
+        {
+          "interval": 0.0,
+          "src": "h6",
+          "dst": "h3",
+          "bw_mbps": 0.3316
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h3",
+          "bw_mbps": 0.1159
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h6",
+          "bw_mbps": 0.1328
+        },
+        {
+          "interval": 0.0,
+          "src": "h5",
+          "dst": "h7",
+          "bw_mbps": 0.3629
+        },
+        {
+          "interval": 0.0,
+          "src": "h2",
+          "dst": "h5",
+          "bw_mbps": 0.3261
+        },
+        {
+          "interval": 0.0,
+          "src": "h8",
+          "dst": "h1",
+          "bw_mbps": 0.2265
+        },
+        {
+          "interval": 0.0,
+          "src": "h7",
+          "dst": "h5",
+          "bw_mbps": 0.2043
+        },
+        {
+          "interval": 0.0,
+          "src": "h1",
+          "dst": "h7",
+          "bw_mbps": 0.3679
+        }
+      ]
+    }
+  ]
+}
