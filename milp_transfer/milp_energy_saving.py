@@ -31,8 +31,10 @@
       --time-limit 300 --mip-gap 0.01
 """
 import argparse
+import csv
 import json
 import sys
+import time
 
 try:
     import gurobipy as gp
@@ -154,6 +156,8 @@ def solve(topo_dir, flows, time_limit=None, mip_gap=None, verbose=True):
     directed_edges = [(u, v) for (u, v) in link_bw.keys()]  # 雙向都有
 
     m = gp.Model('energy_saving_milp')
+    if not verbose:
+        m.Params.OutputFlag = 0   # 大量 batch 迴圈時關掉 Gurobi 自己的求解log，不然1000個batch會洗版又拖慢I/O
     if time_limit:
         m.Params.TimeLimit = time_limit
     if mip_gap:
@@ -302,21 +306,59 @@ if __name__ == '__main__':
     parser.add_argument('--batch-id', type=int, default=None, help='要用 seed 檔裡的哪個 batch，預設用第一個')
     parser.add_argument('--time-limit', type=float, default=None, help='Gurobi 求解秒數上限')
     parser.add_argument('--mip-gap', type=float, default=None, help='容許的最優性誤差比例，例如 0.01=1%')
+    parser.add_argument('--all-batches', action='store_true',
+                         help='在同一個 process 內跑完 seed 檔的全部 batch（不逐次重開 process/重建 '
+                              'Gurobi environment），輸出成 csv。batch 數很多（例如 1000）時務必用這個，'
+                              '否則光是重複啟動 process 的開銷就會比實際求解時間貴很多')
+    parser.add_argument('--csv-out', type=str, default=None,
+                         help='--all-batches 的 csv 輸出路徑，預設用 seed 檔名推導（去掉 .json 加 _results.csv）')
     args = parser.parse_args()
 
     topo_dir = f'data/{args.topo}'
-    flows = load_flows_from_seed(args.seed_path, args.batch_id, topo=args.topo)
-    print(f"[MILP] 讀入 {len(flows)} 條 flow（來自 {args.seed_path}）")
 
-    result = solve(topo_dir, flows, time_limit=args.time_limit, mip_gap=args.mip_gap)
+    if args.all_batches:
+        with open(args.seed_path, encoding='utf-8') as f:
+            seed_data = json.load(f)
+        batches = seed_data['batches']
+        csv_path = args.csv_out or args.seed_path.replace('.json', '_results.csv')
 
-    print(f"\n{'='*60}")
-    print(f"求解狀態: {result.get('status_name', result.get('error'))}")
-    if 'energy_saving_percent' in result:
-        print(f"MIP Gap: {result['mip_gap']}")
-        print(f"節能率: {result['energy_saving_percent']:.2f}%")
-        print(f"開啟 switch 數: {len(result['active_switches'])}  {result['active_switches']}")
-        print(f"開啟 link 數: {len(result['active_links'])}")
-        print(f"\n各 flow 最優路徑：")
-        for fp in result['flow_paths']:
-            print(f"  h{fp['src']} -> h{fp['dst']} ({fp['bw_mbps']:.2f} Mbps): {fp['path']}")
+        link_bw, undirected_links = load_link_bw(f'{topo_dir}/link_bw.txt')
+        switch_energy = load_energy_col3(f'{topo_dir}/switch_energy.txt')
+        n_switches, n_links = len(switch_energy), len(undirected_links)
+
+        with open(csv_path, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['topo', 'seed_file', 'batch', 'n_switches', 'n_links', 'n_flows',
+                              'energy_saving_percent', 'mip_gap', 'solve_time_sec', 'status'])
+            for i, batch in enumerate(batches):
+                flows = [(host_to_switch(fl['src'], topo=args.topo),
+                          host_to_switch(fl['dst'], topo=args.topo),
+                          fl['bw_mbps']) for fl in batch['flows']]
+                t0 = time.time()
+                result = solve(topo_dir, flows, time_limit=args.time_limit, mip_gap=args.mip_gap, verbose=False)
+                elapsed = time.time() - t0
+                writer.writerow([
+                    args.topo, args.seed_path, batch.get('batch_id', i + 1), n_switches, n_links, len(flows),
+                    round(result.get('energy_saving_percent', float('nan')), 4),
+                    result.get('mip_gap'), round(elapsed, 3),
+                    result.get('status_name', result.get('error')),
+                ])
+                if (i + 1) % 100 == 0 or i + 1 == len(batches):
+                    print(f"[{args.seed_path}] {i+1}/{len(batches)} batch 完成")
+        print(f"已存檔 {csv_path}")
+    else:
+        flows = load_flows_from_seed(args.seed_path, args.batch_id, topo=args.topo)
+        print(f"[MILP] 讀入 {len(flows)} 條 flow（來自 {args.seed_path}）")
+
+        result = solve(topo_dir, flows, time_limit=args.time_limit, mip_gap=args.mip_gap)
+
+        print(f"\n{'='*60}")
+        print(f"求解狀態: {result.get('status_name', result.get('error'))}")
+        if 'energy_saving_percent' in result:
+            print(f"MIP Gap: {result['mip_gap']}")
+            print(f"節能率: {result['energy_saving_percent']:.2f}%")
+            print(f"開啟 switch 數: {len(result['active_switches'])}  {result['active_switches']}")
+            print(f"開啟 link 數: {len(result['active_links'])}")
+            print(f"\n各 flow 最優路徑：")
+            for fp in result['flow_paths']:
+                print(f"  h{fp['src']} -> h{fp['dst']} ({fp['bw_mbps']:.2f} Mbps): {fp['path']}")
