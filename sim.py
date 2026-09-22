@@ -100,6 +100,18 @@ _TOPO_FILES = {
         'k_short_dist':    'data/grid_4x4/k_short_dist.txt',
         'base_weight_map': 'data/grid_4x4/base_weight_map.txt',
     },
+    # 4x4 grid，但每個 switch（含 4 個內部節點）都接一台 host，
+    # 跟 grid_4x4（只有 12 個外圍 switch 接 host）不同拓樸性質。
+    # switch/link 結構跟 grid_4x4 完全一樣（同一份 switch_energy/link_energy/link_bw），
+    # 只有 k_short 系列因為 host 集合不同（16 host、240 組 pair）而需要另外計算。
+    'grid_4x4_allhosts': {
+        'link_bw':         'data/grid_4x4_allhosts/link_bw.txt',
+        'link_energy':     'data/grid_4x4_allhosts/link_energy.txt',
+        'switch_energy':   'data/grid_4x4_allhosts/switch_energy.txt',
+        'k_short':         'data/grid_4x4_allhosts/k_short.txt',
+        'k_short_dist':    'data/grid_4x4_allhosts/k_short_dist.txt',
+        'base_weight_map': 'data/grid_4x4_allhosts/base_weight_map.txt',
+    },
     'grid_6x6': {
         'link_bw':         'data/grid_6x6/link_bw.txt',
         'link_energy':     'data/grid_6x6/link_energy.txt',
@@ -135,6 +147,14 @@ _TOPO_FILES = {
         'k_short':         'data/geant_31/k_short.txt',
         'k_short_dist':    'data/geant_31/k_short_dist.txt',
         'base_weight_map': 'data/geant_31/base_weight_map.txt',
+    },
+    'fattree_k4': {
+        'link_bw':         'data/fattree_k4/link_bw.txt',
+        'link_energy':     'data/fattree_k4/link_energy.txt',
+        'switch_energy':   'data/fattree_k4/switch_energy.txt',
+        'k_short':         'data/fattree_k4/k_short.txt',
+        'k_short_dist':    'data/fattree_k4/k_short_dist.txt',
+        'base_weight_map': 'data/fattree_k4/base_weight_map.txt',
     },
 }
 
@@ -517,9 +537,6 @@ class Simulator:
         elif algorithm == 'sorted':
             from modules.routing_DTM_sorted import Routing_DTM_Sorted
             return Routing_DTM_Sorted(self.app)
-        elif algorithm == 'sorted_link':
-            from modules.routing_DTM_sorted_link import Routing_DTM_Sorted_Link
-            return Routing_DTM_Sorted_Link(self.app)
         else:
             raise ValueError(f"未知演算法: {algorithm}")
 
@@ -854,7 +871,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch',     type=int, default=None,
                         help='指定 batch_id（不指定則跑全部）')
     parser.add_argument('--algorithm', type=str, default=ROUTING_ALGORITHM,
-                        choices=['self', '2020', 'dijkstra', 'sorted', 'sorted_link'],
+                        choices=['self', '2020', 'dijkstra', 'sorted'],
                         help='路由演算法（預設依檔案頂部設定）')
     parser.add_argument('--topo',      type=str, default=None,
                         choices=list(_TOPO_FILES.keys()),

@@ -192,20 +192,13 @@ def solve(topo_dir, flows, time_limit=None, mip_gap=None, verbose=True):
 
     n_flows = len(flows)
 
-    # 有些拓樸（例如 cap）一個 switch 掛多個 host，src/dst 可能落在同一個
-    # switch 上——這種「本地流量」不需要經過任何 link，只要求該 switch
-    # 開啟即可，不能套用一般的流量守恆式（否則 src==dst 的節點會被要求
-    # 淨流出=1 卻沒有對應的淨流入=-1，導致整個模型不可行）。
-    local_flow_idx = {fidx for fidx, (src, dst, bw) in enumerate(flows) if src == dst}
-    routed_flow_idx = [fidx for fidx in range(n_flows) if fidx not in local_flow_idx]
-
     # ── 決策變數 ──────────────────────────────────────────
     # S[i]：switch i 是否開啟
     S = m.addVars(switches, vtype=GRB.BINARY, name='S')
     # L[u,v]：無向 link (u,v)（u<v）是否開啟
     L = m.addVars(undirected_links, vtype=GRB.BINARY, name='L')
-    # x[f, u, v]：第 f 條 flow 是否使用有向邊 u->v（只需要給 routed flow 建）
-    x = m.addVars(routed_flow_idx, directed_edges, vtype=GRB.BINARY, name='x')
+    # x[f, u, v]：第 f 條 flow 是否使用有向邊 u->v
+    x = m.addVars(range(n_flows), directed_edges, vtype=GRB.BINARY, name='x')
 
     # ── 目標函數：minimize Σ S_i*C_i + Σ L_uv*C_uv ──────────
     m.setObjective(
@@ -214,14 +207,15 @@ def solve(topo_dir, flows, time_limit=None, mip_gap=None, verbose=True):
         GRB.MINIMIZE
     )
 
-    # ── 限制式 0：本地流量（src==dst）強制該 switch 開啟 ──────
-    for fidx in local_flow_idx:
-        src = flows[fidx][0]
-        m.addConstr(S[src] == 1, name=f'local_flow{fidx}_sw_{src}')
-
     # ── 限制式 1：流量守恆（每條 flow 從 src 到 dst 剛好一條路徑）──
-    for fidx in routed_flow_idx:
-        src, dst, bw = flows[fidx]
+    # src==dst 的「本地流量」（cap 拓樸裡同一個邊緣 switch 掛兩台 host、
+    # 兩台互傳的情況）不需要走任何邊，直接跳過守恆限制式，改成強制
+    # 該 switch 開啟即可——否則 src 節點會被要求淨流出=1，但沒有任何
+    # 邊能製造這個淨流出，模型必然 infeasible。
+    for fidx, (src, dst, bw) in enumerate(flows):
+        if src == dst:
+            m.addConstr(S[src] >= 1, name=f'local_flow{fidx}_{src}')
+            continue
         for node in switches:
             out_flow = gp.quicksum(x[fidx, node, v] for u2, v in directed_edges if u2 == node)
             in_flow = gp.quicksum(x[fidx, u, node] for u, v2 in directed_edges if v2 == node)
@@ -237,27 +231,26 @@ def solve(topo_dir, flows, time_limit=None, mip_gap=None, verbose=True):
         cap = link_bw[(u, v)]
         total_load = gp.quicksum(
             flows[fidx][2] * (x[fidx, u, v] + x[fidx, v, u])
-            for fidx in routed_flow_idx
+            for fidx in range(n_flows)
         )
         m.addConstr(total_load <= cap, name=f'cap_{u}_{v}')
 
     # ── 限制式 3：switch 開啟狀態跟隨使用情況 ──────────────
     for i in switches:
         adj_edges = [(u, v) for (u, v) in directed_edges if u == i or v == i]
-        for fidx in routed_flow_idx:
+        for fidx in range(n_flows):
             for (u, v) in adj_edges:
                 m.addConstr(S[i] >= x[fidx, u, v], name=f'sw_{i}_f{fidx}_{u}_{v}')
 
     # ── 限制式 4：link 開啟狀態跟隨使用情況（任一方向）──────
     for (u, v) in undirected_links:
-        for fidx in routed_flow_idx:
+        for fidx in range(n_flows):
             m.addConstr(L[u, v] >= x[fidx, u, v], name=f'lk_{u}_{v}_f{fidx}_fwd')
             m.addConstr(L[u, v] >= x[fidx, v, u], name=f'lk_{u}_{v}_f{fidx}_rev')
 
     if verbose:
-        print(f"[MILP] switches={len(switches)}  links={len(undirected_links)}  flows={n_flows}"
-              f"（本地流量 {len(local_flow_idx)} 條, 需路由 {len(routed_flow_idx)} 條）")
-        print(f"[MILP] 變數數: S={len(switches)} L={len(undirected_links)} x={len(routed_flow_idx)*len(directed_edges)}")
+        print(f"[MILP] switches={len(switches)}  links={len(undirected_links)}  flows={n_flows}")
+        print(f"[MILP] 變數數: S={len(switches)} L={len(undirected_links)} x={n_flows*len(directed_edges)}")
 
     m.optimize()
 
@@ -278,9 +271,6 @@ def solve(topo_dir, flows, time_limit=None, mip_gap=None, verbose=True):
     # 還原每條 flow 的實際路徑（從 x 變數重建，DFS 沿著被選中的邊走）
     flow_paths = []
     for fidx, (src, dst, bw) in enumerate(flows):
-        if fidx in local_flow_idx:
-            flow_paths.append({'src': src, 'dst': dst, 'bw_mbps': bw, 'path': [src]})
-            continue
         path = [src]
         cur = src
         visited = {src}
