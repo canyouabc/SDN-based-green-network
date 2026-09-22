@@ -24,7 +24,16 @@ PRESEED_ENDPOINTS = False  # True：處理每一輪 flow 前，先把這輪所�
                            # （同一 host pair 不管選哪條 k-short 候選路徑都固定相同）預先標記為 active，
                            # 不讓 clean_zero／inactive_counter 把「反正一定要開」的 switch 誤判成選路的代價。
                            # False（現行／預設）：active_sw 從空集合開始，起訖點也要等流量真的選定路徑才算 active。
+WEIGHT_SCORE_NEW_ONLY = False  # False（現行）：Phase2 打分加總候選路徑上所有 switch 的 weight_map。
+                                # True：只加總「尚未開啟」（不在 active_sw）的 switch，排除已開啟 switch
+                                # 的權重（反正已經開著，跟本次要不要多開一個新 switch 的決策無關）。
 CD_DEBUG = False
+
+# k_short.txt 解析結果快取（見 load_k_short_paths 的說明）：
+# {filepath: (k_short_paths, k_short_paths_by_hop, k_short_hop_keys)}
+# 這是跨 Simulator/process 生命週期共用的模組級快取，同一個拓樸的檔案
+# 只會真的讀取+parse一次；換拓樸（不同 filepath）會各自快取一份，不衝突。
+_K_SHORT_CACHE = {}
 
 
 if CD_DEBUG:
@@ -44,6 +53,10 @@ def _cd_log(msg):
 
 
 class Routing_DTM_Sorted(RoutingBase):
+    # 用 admit_flow 當下的 cascade 選路，需要 on_flow_removed 通知／
+    # refresh_link_cache 維持內部 link 快取更新（見 modules/startup_requirements.py）。
+    REROUTE_STYLE = 'cascade'
+    REQUIRED_APP_FEATURES = {'link_status'}
 
     def __init__(self, app):
         self.app = app
@@ -295,16 +308,21 @@ class Routing_DTM_Sorted(RoutingBase):
                 candidates.append(path)
         return candidates, best_hop, best_inactive
 
-    def _run_phase2(self, candidates):
+    def _run_phase2(self, candidates, active_sw):
         """
         Phase 2：用 weight_map 打分，回傳 (selected, scores)。
-        scores = [(path, weight), ...]，weight 為路徑上所有 switch 的 weight 總和。
+        scores = [(path, weight), ...]，weight 為路徑上 switch 的 weight 總和
+        （WEIGHT_SCORE_NEW_ONLY=True 時只計入尚未開啟的 switch）。
         無論候選數量，一律回傳 scores（供 trace 使用）。
         """
         if not candidates:
             return None, []
 
-        scores = [(p, sum(self.weight_map.get(sw, 0) for sw in p)) for p in candidates]
+        if WEIGHT_SCORE_NEW_ONLY:
+            scores = [(p, sum(self.weight_map.get(sw, 0) for sw in p if sw not in active_sw))
+                      for p in candidates]
+        else:
+            scores = [(p, sum(self.weight_map.get(sw, 0) for sw in p)) for p in candidates]
 
         if len(candidates) == 1:
             return candidates[0], scores
@@ -333,7 +351,7 @@ class Routing_DTM_Sorted(RoutingBase):
         if candidates is None:
             return None
 
-        selected, _ = self._run_phase2(candidates)
+        selected, _ = self._run_phase2(candidates, active_sw)
         return selected
 
     # =========================================================
@@ -399,7 +417,7 @@ class Routing_DTM_Sorted(RoutingBase):
                 continue
 
             # Phase 2
-            selected, scores = self._run_phase2(candidates)
+            selected, scores = self._run_phase2(candidates, active_sw)
 
             # ── Trace: phase2 ────────────────────────────────────
             if self._step_cb:
@@ -481,6 +499,72 @@ class Routing_DTM_Sorted(RoutingBase):
         return new_flow_path
 
     # =========================================================
+    # admit_flows_batch：靜態快照專用——只排序一次、逐一放置一次，
+    # 沒有 cascade（不會回頭重放已經放好的flow）。
+    #
+    # 只適合「這批flow邏輯上同時存在、到達順序沒有意義」的情境
+    # （例如 sim.py 的靜態快照MILP對照實驗）。DTM.py／真實 Mininet
+    # 這種flow真的隨時間各自抵達的情境，必須用 admit_flow() 逐條
+    # 處理，不能用這個——這裡刻意不留任何相容/降級路徑，用錯就是
+    # 用錯，不要悄悄算出一個看似合理但少考慮cascade的結果。
+    # =========================================================
+
+    def admit_flows_batch(self, flow_list):
+        """
+        flow_list: [(host_a, host_b), ...]
+        回傳: {(host_a, host_b): path}，只包含成功選到路徑的flow。
+
+        前提：呼叫時這個 Simulator 必須還沒有任何 active flow（乾淨狀態）。
+        """
+        if list(self.app.get_active_flows()):
+            raise RuntimeError(
+                "admit_flows_batch() 只能用在全新、還沒有任何 active flow 的情境——"
+                "這個函式假設所有 flow 邏輯上同時抵達，如果已經有 flow 在跑，"
+                "代表你要的是真實情境，該用 admit_flow() 逐條處理。"
+            )
+
+        self.refresh_link_cache()
+        _t0 = time.time()
+
+        all_flows = []
+        for host_a, host_b in flow_list:
+            if (host_a, host_b) not in self.k_short_paths_by_hop:
+                print(f"[DTM-Sorted] 沒有 k-short 路徑: {host_a} -> {host_b}")
+                continue
+            all_flows.append((host_a, host_b, None))
+
+        self._build_weight_map(all_flows)
+        if LOAD_CHECK_MODE == 'INCREMENTAL':
+            self._build_link_load(all_flows)
+        self._sort_flows(all_flows)
+
+        active_sw = set()
+        if PRESEED_ENDPOINTS:
+            self._preseed_endpoints(active_sw, all_flows)
+
+        results = {}
+        for fa, fb, _ in all_flows:
+            global_min_hop = self._global_min_hop.get((fa, fb))
+            candidates, _, best_inactive = self._run_phase1(fa, fb, active_sw, remove_path=None)
+            if candidates is None:
+                continue
+
+            selected, scores = self._run_phase2(candidates, active_sw)
+            is_ns = (global_min_hop is not None and len(selected) > global_min_hop)
+            if is_ns:
+                self.非最短hop清單[(fa, fb)] = len(selected)
+
+            self.app.add_active_flow(fa, fb, selected)
+            active_sw.update(selected)
+            results[(fa, fb)] = selected
+            if LOAD_CHECK_MODE == 'INCREMENTAL':
+                self._add_link_load(selected, self._get_flow_bw(fa, fb))
+
+        elapsed = time.time() - _t0
+        print(f"[SORTED_BATCH_TIME] flows={len(all_flows)} elapsed={elapsed:.4f}s")
+        return results
+
+    # =========================================================
     # on_flow_removed + _cascade
     # =========================================================
 
@@ -539,7 +623,7 @@ class Routing_DTM_Sorted(RoutingBase):
                 continue
 
             # Phase 2
-            selected, scores = self._run_phase2(candidates)
+            selected, scores = self._run_phase2(candidates, active_sw)
 
             # ── Trace: phase2 ────────────────────────────────────
             if self._step_cb:
@@ -601,6 +685,17 @@ class Routing_DTM_Sorted(RoutingBase):
     # =========================================================
 
     def load_k_short_paths(self, filepath='data/k_short.txt'):
+        # k_short.txt 解析後就是唯讀資料，載入後從沒被改過（見上面幾個
+        # self.k_short_paths[...]／k_short_paths_by_hop[...]／k_short_hop_keys[...]
+        # 的賦值，全部只在這個函式裡發生）——用同一份拓樸重複建立多個
+        # Simulator（例如批次跑很多個snapshot）時，直接共用同一份已解析
+        # 好的資料，不用每次都重新開檔、重新parse一次（大拓樸的k_short.txt
+        # 可能好幾MB，重複parse是明顯的效能瓶頸）。
+        cached = _K_SHORT_CACHE.get(filepath)
+        if cached is not None:
+            self.k_short_paths, self.k_short_paths_by_hop, self.k_short_hop_keys = cached
+            print(f"[DTM-Sorted] 沿用快取的 k-short 路徑（{len(self.k_short_paths)} 個 host pair）: {filepath}")
+            return
         try:
             with open(filepath, 'r') as f:
                 for line in f:
@@ -628,6 +723,7 @@ class Routing_DTM_Sorted(RoutingBase):
                 self.k_short_paths_by_hop[key] = by_hop
                 self.k_short_hop_keys[key] = sorted(by_hop.keys())
             print(f"[DTM-Sorted] 載入 {len(self.k_short_paths)} 個 host pair 的 k-short 路徑")
+            _K_SHORT_CACHE[filepath] = (self.k_short_paths, self.k_short_paths_by_hop, self.k_short_hop_keys)
         except FileNotFoundError:
             print(f"[DTM-Sorted] 找不到 {filepath}")
         except Exception as e:
