@@ -102,7 +102,7 @@ def load_link_energy(filepath):
 # 才是全部 switch 都接 host），host 編號是照 grid_topo_*.py 的外圍走訪順序分配，
 # 不是 switch dpid 順序，見 gen_kshort_generic.py 的 border_host_switch_map()——
 # 這裡重複同一套公式，避免 milp_energy_saving.py 額外依賴 Auto_routing_k_short。
-_BORDER_GRID_N = {'grid_2x2': 2, 'grid_3x3': 3, 'grid_4x4': 4, 'grid': 5, 'grid_5x5': 5}
+_BORDER_GRID_N = {'grid_2x2': 2, 'grid_3x3': 3, 'grid_4x4': 4, 'grid': 5, 'grid_5x5': 5, 'grid_6x6': 6}
 
 
 def _border_host_switch_map(n_grid):
