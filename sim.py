@@ -696,6 +696,50 @@ class Simulator:
         self._snap('admit', src, dst, path)
         return path
 
+    def admit_batch(self, flows, sim_t=None):
+        """
+        flows: [(src, dst, size_mbps), ...]，一整批「邏輯上同時存在」的flow
+        （靜態快照專用：interval=0 的種子檔用這個一次放完，比逐條呼叫
+        admit() 快很多，因為不會有 cascade 重新檢查已放置的flow）。
+
+        如果目前的路由演算法沒有 admit_flows_batch()（目前只有
+        routing_DTM_sorted 有），自動退回逐條呼叫 admit()，結果一樣、
+        只是沒有加速——呼叫端不需要自己判斷用哪個演算法。
+
+        注意：這個路徑不會產生 [SNAPSHOT]／動畫用的逐步快照（那是
+        admit() 的逐條事件才有的東西），只適合純數據批次實驗，
+        不適合需要動畫的場合。
+
+        回傳: {(src, dst): path}
+        """
+        if sim_t is not None:
+            self._sim_time = sim_t
+
+        if not hasattr(self.routing, 'admit_flows_batch'):
+            return {(src, dst): self.admit(src, dst, bw, sim_t=sim_t) for src, dst, bw in flows}
+
+        mac_pairs = []
+        host_pairs = []
+        for src, dst, bw in flows:
+            mac_src = host_to_mac(src) if src.startswith('h') else src
+            mac_dst = host_to_mac(dst) if dst.startswith('h') else dst
+            self.app._flow_sizes[(mac_src, mac_dst)] = bw
+            mac_pairs.append((mac_src, mac_dst))
+            host_pairs.append((src, dst))
+
+        print(f"\n[t={self._sim_time:>6.1f}s] ▶▶ admit_batch  {len(flows)} 條 flow")
+        mac_results = self.routing.admit_flows_batch(mac_pairs)
+        if hasattr(self.routing, 'refresh_link_cache'):
+            self.routing.refresh_link_cache()
+        if self._enable_link_monitor:
+            self._run_monitor()
+        self._print_routing_status()
+
+        return {
+            (src, dst): mac_results.get((mac_src, mac_dst))
+            for (src, dst), (mac_src, mac_dst) in zip(host_pairs, mac_pairs)
+        }
+
     def depart(self, src, dst, sim_t=None):
         """
         結束一條流量。
