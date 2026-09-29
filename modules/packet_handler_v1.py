@@ -78,7 +78,7 @@ class PacketHandlerV1:
                 )
             except Exception as e:
                 self.app.logger.error(f"[UNKNOWN_TCP] 路由計算失敗: {e}")
-        elif self.routing_algorithm in ('2020', 'dijkstra', 'self', 'sorted'):
+        elif getattr(self.app.routing_module, 'REROUTE_STYLE', None) is not None:
             # 2020 / dijkstra 版本的路由計算邏輯
             try:
                 parser = datapath.ofproto_parser
@@ -164,7 +164,7 @@ class PacketHandlerV1:
                 )
             except Exception as e:
                 self.app.logger.error(f"[UNKNOWN_UDP] 路由計算失敗: {e}")
-        elif self.routing_algorithm in ('2020', 'dijkstra', 'self', 'sorted'):
+        elif getattr(self.app.routing_module, 'REROUTE_STYLE', None) is not None:
             # 2020 / dijkstra 版本的路由計算邏輯
             try:
                 parser = datapath.ofproto_parser

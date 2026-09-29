@@ -17,6 +17,14 @@ if TYPE_CHECKING:
 
 
 class RoutingBase:
+    # 子類自我宣告的能力旗標，取代散落在 DTM.py／packet_handler_v1.py／
+    # startup_requirements.py 裡的 ROUTING_ALGORITHM in (tuple) 判斷——
+    # 新增一個路由變體只需要在它自己的檔案宣告這些屬性，不用同步改別的
+    # 檔案（2026-09-15 系統性回顧，因為 sorted_link 曾經漏改 6 處而起）。
+    REROUTE_STYLE = None            # 'monitor_poll' 或 'cascade'，子類覆寫
+    REQUIRED_APP_FEATURES = set()   # 需要非 None 的 self.app.<屬性名稱>，子類覆寫
+    USES_LEGACY_DELAY_INFRA = False # 只有 2014／auto_k_short（不繼承這個類別）會是 True
+
     def __init__(self, app: "RoutingHost"):
         self.app = app
 

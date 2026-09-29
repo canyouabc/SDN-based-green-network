@@ -11,6 +11,7 @@
 import os
 import sys
 import json
+import argparse
 from datetime import datetime
 
 import pandas as pd
@@ -60,18 +61,19 @@ class _AppendTee:
         self._file.close()
 
 # ── 設定 ────────────────────────────────────────────────────────
-SEED_PATH = 'seed_000_cap.json'
-TOPO      = 'cap'   # 'grid'(5x5) | 'cap' | 'grid_2x2' | 'grid_3x3' | 'grid_4x4' | 'grid_6x6' | 'grid_7x7'
+SEED_PATH = 'seed_000_grid3x3_high.json'
+TOPO      = 'grid_3x3'   # 'grid'(5x5) | 'cap' | 'grid_2x2' | 'grid_3x3' | 'grid_4x4' | 'grid_6x6' | 'grid_7x7'
 ALGORITHM = 'sorted'
 MAKE_PLOTS = False   # 每組 combo 是否也產出 batch_N.png（組數多時建議關閉）
 
 # 未被 combo 覆蓋的旗標，一律重置回這裡的值，確保每組互不影響、可重現
 BASELINE = {
-    'SORT_MODE':          'LPF',
-    'WEIGHT_MODE':        'STATIC',
-    'LOAD_CHECK_MODE':    'INCREMENTAL',
-    'ENABLE_WEIGHT_MAP':  True,
-    'PRESEED_ENDPOINTS':  False,
+    'SORT_MODE':            'LPF',
+    'WEIGHT_MODE':          'STATIC',
+    'LOAD_CHECK_MODE':      'INCREMENTAL',
+    'ENABLE_WEIGHT_MAP':    True,
+    'PRESEED_ENDPOINTS':    False,
+    'WEIGHT_SCORE_NEW_ONLY': False,
 }
 #
 #ENABLE_WEIGHT_MAP = True    # True：Phase 2 用 base_weight_map 打分；False：並列時直接 random
@@ -107,25 +109,26 @@ COMBOS = [
     {'name': 'SPF_PRESEED',    'SORT_MODE': 'SPF', 'ENABLE_WEIGHT_MAP': False, 'PRESEED_ENDPOINTS': True},
     {'name': 'HDF_PRESEED',    'SORT_MODE': 'HDF', 'ENABLE_WEIGHT_MAP': False, 'PRESEED_ENDPOINTS': True},
     {'name': 'SDF_PRESEED',    'SORT_MODE': 'SDF', 'ENABLE_WEIGHT_MAP': False, 'PRESEED_ENDPOINTS': True},
-    #{'name': 'LPF_ENABLE_WEIGHT_MAP_PRESEED', 'SORT_MODE': 'LPF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True},
-    #{'name': 'SPF_ENABLE_WEIGHT_MAP_PRESEED', 'SORT_MODE': 'SPF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True},
-    #{'name': 'HDF_ENABLE_WEIGHT_MAP_PRESEED', 'SORT_MODE': 'HDF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True},
-    #{'name': 'SDF_ENABLE_WEIGHT_MAP_PRESEED', 'SORT_MODE': 'SDF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True},
+    {'name': 'LPF_ENABLE_WEIGHT_MAP_PRESEED', 'SORT_MODE': 'LPF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True},
+    {'name': 'SPF_ENABLE_WEIGHT_MAP_PRESEED', 'SORT_MODE': 'SPF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True},
+    {'name': 'HDF_ENABLE_WEIGHT_MAP_PRESEED', 'SORT_MODE': 'HDF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True},
+    {'name': 'SDF_ENABLE_WEIGHT_MAP_PRESEED', 'SORT_MODE': 'SDF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True},
     #{'name': 'DENSITY_PRESEED', 'SORT_MODE': 'DENSITY', 'ENABLE_WEIGHT_MAP': False, 'PRESEED_ENDPOINTS': True},
     #{'name': 'DENSITY_ENABLE_WEIGHT_MAP_PRESEED', 'SORT_MODE': 'DENSITY', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True},
+
+    # WEIGHT_SCORE_NEW_ONLY 只在 ENABLE_WEIGHT_MAP=True 時才有效果（Phase2 才會真的用 weight_map 打分），
+    # 所以直接對照上面 4 組 *_ENABLE_WEIGHT_MAP_PRESEED（WEIGHT_SCORE_NEW_ONLY=False，其餘設定相同）。
+    {'name': 'LPF_ENABLE_WEIGHT_MAP_PRESEED_NEWONLY', 'SORT_MODE': 'LPF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True, 'WEIGHT_SCORE_NEW_ONLY': True},
+    {'name': 'SPF_ENABLE_WEIGHT_MAP_PRESEED_NEWONLY', 'SORT_MODE': 'SPF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True, 'WEIGHT_SCORE_NEW_ONLY': True},
+    {'name': 'HDF_ENABLE_WEIGHT_MAP_PRESEED_NEWONLY', 'SORT_MODE': 'HDF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True, 'WEIGHT_SCORE_NEW_ONLY': True},
+    {'name': 'SDF_ENABLE_WEIGHT_MAP_PRESEED_NEWONLY', 'SORT_MODE': 'SDF', 'ENABLE_WEIGHT_MAP': True, 'PRESEED_ENDPOINTS': True, 'WEIGHT_SCORE_NEW_ONLY': True},
 ]
 
 
 def run_one_combo(combo, seed_data):
     """套用一組設定，完整跑過 seed 的所有 batch，回傳這組 combo 的
     energy_saving_summary（逐 batch + AVERAGE），已標上 combo 的欄位。"""
-    # ALGORITHM='sorted_link' 時，COMBOS 的設定要套用到 routing_DTM_sorted_link
-    # 這個模組（sim.Simulator 也是依 ALGORITHM 切換去 import 它），
-    # 不然 sim.Simulator 實際用的模組跟這裡改的模組會對不上，等於白跑。
-    if ALGORITHM == 'sorted_link':
-        import modules.routing_DTM_sorted_link as rm
-    else:
-        import modules.routing_DTM_sorted as rm
+    import modules.routing_DTM_sorted as rm
 
     resolved = dict(BASELINE)
     resolved.update({k: v for k, v in combo.items() if k in BASELINE})
@@ -210,6 +213,9 @@ _SERIES_STYLE = {
     (False, True):  ("SGH+ESP",                                _COLOR_FT),
     (True,  True):  ("ENABLE_WEIGHT_MAP=True, PRESEED=True",   _COLOR_TT),
 }
+# WEIGHT_SCORE_NEW_ONLY=True 的組合跟對應的 False 版本共用同一組 (wm, preseed) 顏色，
+# 用 hatch 花紋 + label 後綴區分，不用再開新色票（避免顏色數量隨旗標數量爆炸）。
+_NEW_ONLY_HATCH = '///'
 if _CJK_FONT:
     _METRICS = [
         ("a) 節能百分比 (%)", "mean_after_100",   "節能 (%)"),
@@ -223,16 +229,21 @@ else:
 
 
 def _plot_sweep_bar(avg: pd.DataFrame, out_path: str):
-    """畫節能百分比／平均 hop 數雙面板長條圖，依 SORT_MODE 分組、WEIGHT_MAP/PRESEED 當子長條。
-    只畫 avg 裡實際出現過的 (ENABLE_WEIGHT_MAP, PRESEED_ENDPOINTS) 組合，
-    COMBOS 沒跑到的組合不會出現在 legend 裡。"""
+    """畫節能百分比／平均 hop 數雙面板長條圖，依 SORT_MODE 分組、
+    (ENABLE_WEIGHT_MAP, PRESEED_ENDPOINTS, WEIGHT_SCORE_NEW_ONLY) 當子長條。
+    只畫 avg 裡實際出現過的組合，COMBOS 沒跑到的組合不會出現在 legend 裡。
+    WEIGHT_SCORE_NEW_ONLY=True 沿用對應 (wm, preseed) 的顏色 + hatch 花紋區分，
+    不佔用新色票 slot。"""
     sort_order = list(dict.fromkeys(avg['SORT_MODE']))  # 保留出現順序，去重
     present_keys = list(dict.fromkeys(
-        zip(avg['ENABLE_WEIGHT_MAP'], avg['PRESEED_ENDPOINTS'])
+        zip(avg['ENABLE_WEIGHT_MAP'], avg['PRESEED_ENDPOINTS'], avg['WEIGHT_SCORE_NEW_ONLY'])
     ))  # 保留出現順序，去重
-    series = [(label, color, wm, preseed)
-              for (wm, preseed) in present_keys
-              for label, color in [_SERIES_STYLE[(wm, preseed)]]]
+    series = []
+    for (wm, preseed, new_only) in present_keys:
+        label, color = _SERIES_STYLE[(wm, preseed)]
+        if new_only:
+            label = f"{label} + NEW_ONLY"
+        series.append((label, color, wm, preseed, new_only))
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5), facecolor=_SURFACE)
     n_series = len(series)
@@ -244,7 +255,7 @@ def _plot_sweep_bar(avg: pd.DataFrame, out_path: str):
         ax = axes[panel_idx]
         ax.set_facecolor(_SURFACE)
         all_vals = []
-        for i, (label, color, wm, preseed) in enumerate(series):
+        for i, (label, color, wm, preseed, new_only) in enumerate(series):
             offset = (i - (n_series - 1) / 2) * (bar_w + gap)
             values = []
             for sm in sort_order:
@@ -252,12 +263,15 @@ def _plot_sweep_bar(avg: pd.DataFrame, out_path: str):
                     (avg['SORT_MODE'] == sm)
                     & (avg['ENABLE_WEIGHT_MAP'] == wm)
                     & (avg['PRESEED_ENDPOINTS'] == preseed)
+                    & (avg['WEIGHT_SCORE_NEW_ONLY'] == new_only)
                 ]
                 values.append(row[col].iloc[0] if len(row) else np.nan)
             all_vals.extend(values)
             x = group_centers + offset
+            bar_edge = _INK_PRIMARY if new_only else _SURFACE
             bars = ax.bar(x, values, width=bar_w, color=color, label=label,
-                          edgecolor=_SURFACE, linewidth=1.2, zorder=3)
+                          edgecolor=bar_edge, linewidth=1.2, zorder=3,
+                          hatch=_NEW_ONLY_HATCH if new_only else None)
             if panel_idx == 0:
                 legend_handles.append(bars)
 
@@ -337,14 +351,29 @@ def main():
         all_results.append(result)
 
     comparison = pd.concat(all_results, ignore_index=True)
-    comparison.to_csv('sweep_comparison.csv', index=False)
-    print(f"\n全部 {len(COMBOS)} 組 combo 完成，彙總表已存至 sweep_comparison.csv")
 
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     summary_dir = f"log/sweep-summary-{timestamp}"
     os.makedirs(summary_dir, exist_ok=True)
+
+    # 'sweep_comparison.csv' 固定路徑只留給「最新一次」快速查看；
+    # 同時存一份到 summary_dir（timestamp 不重複），連續跑多個 TOPO／SEED_PATH
+    # 組合時才不會互相覆蓋、只剩最後一次的結果。
+    comparison.to_csv('sweep_comparison.csv', index=False)
+    comparison.to_csv(os.path.join(summary_dir, 'sweep_comparison.csv'), index=False)
+    print(f"\n全部 {len(COMBOS)} 組 combo 完成，彙總表已存至 sweep_comparison.csv 與 {summary_dir}/sweep_comparison.csv")
+
     _write_summary(comparison, summary_dir)
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--topo",      type=str, default=TOPO)
+    parser.add_argument("--seed-path", type=str, default=SEED_PATH)
+    args = parser.parse_args()
+
+    # 覆蓋模組常數（不加參數時跟現在的行為完全一樣）。
+    TOPO      = args.topo
+    SEED_PATH = args.seed_path
+
     main()

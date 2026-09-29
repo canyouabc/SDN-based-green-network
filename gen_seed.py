@@ -98,10 +98,26 @@ def gen_seed(seed, num_batches, output):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--seed",    type=int, required=True)
-    parser.add_argument("--batches", type=int, default=NUM_BATCHES)
-    parser.add_argument("--output",  type=str, default=None)
+    parser.add_argument("--seed",          type=int, required=True)
+    parser.add_argument("--batches",       type=int, default=NUM_BATCHES)
+    parser.add_argument("--output",        type=str, default=None)
+    parser.add_argument("--hosts",         type=int,   default=len(HOSTS),
+                         help="host 數（產生 h1..hN），預設沿用現行 54（cap 拓樸用）")
+    parser.add_argument("--flow-duration", type=float, default=FLOW_DURATION)
+    parser.add_argument("--lambda",        type=float, default=LAMBDA, dest="lam")
+    parser.add_argument("--bw-min",        type=float, default=BW_MIN)
+    parser.add_argument("--bw-max",        type=float, default=BW_MAX)
     args = parser.parse_args()
+
+    # 覆蓋模組常數，重新計算依賴它們的 ALL_PAIRS／EXPECTED_CONCURRENT
+    # （不加這幾個參數時數值跟原本完全一樣，不影響既有 cap 種子檔的重現性）。
+    HOSTS               = [f"h{i}" for i in range(1, args.hosts + 1)]
+    FLOW_DURATION       = args.flow_duration
+    LAMBDA              = args.lam
+    BW_MIN              = args.bw_min
+    BW_MAX              = args.bw_max
+    ALL_PAIRS           = list(permutations(HOSTS, 2))
+    EXPECTED_CONCURRENT = LAMBDA * FLOW_DURATION
 
     output = args.output or f"seed_{args.seed}.json"
     gen_seed(args.seed, args.batches, output)

@@ -64,14 +64,16 @@
 
 - [ ] **`routing_DTM_sorted.py` 三個可切換旗標**（皆為模組頂部常數，改了要重跑）：
       - `SORT_MODE`：五選一，決定 flow 處理順序（優先度最高排最前面）
-        - `'LPF'`（現行／預設）：依理論最短 hop 由大到小（對應 SGH 的 Shortest Path Last）
-        - `'SPF'`：依理論最短 hop 由小到大（Shortest Path First）
+        - `'LPF'`：依理論最短 hop 由大到小（對應 SGH 的 Shortest Path Last）
+        - `'SPF'`（現行／模組預設）：依理論最短 hop 由小到大（Shortest Path First）
+        - ⚠️ `sweep_sorted.py` 的 `BASELINE` 仍是 `'LPF'`：combo 沒寫 `SORT_MODE` 時會被重置成 LPF，
+          不是模組預設的 SPF
         - `'HDF'`：依 flow 已知頻寬（`_get_flow_bw`）由大到小（Highest Demand First）
         - `'SDF'`：依 flow 已知頻寬由小到大（Smallest Demand First）
         - `'DENSITY'`：依 flow 的最小路徑集合在 `weight_map` 上的平均權重排序，
           擁擠密度越高越優先，跟 hop 數無關（本研究提出，非 SGH 原始四種之一）
         - `SPF`／`HDF`／`SDF` 對應 SGH 論文（`docs` 提到的 2014 論文）原始的四種排序條件，
-          跟現行 `LPF` 湊成完整四種；`HDF`／`SDF` 依賴 `_get_flow_bw`，
+          跟 `LPF` 湊成完整四種；`HDF`／`SDF` 依賴 `_get_flow_bw`，
           只在 `sim.py`（`_flow_sizes` 已知）時排序才有意義——`DTM.py` 沒有這個屬性，
           所有 flow 的排序 key 都會是 0，等同沒排序（不會噴錯，但沒有實質效果）
       - `WEIGHT_MODE`：`'STATIC'`（`weight_map` 整輪處理期間固定不變，現行／預設）
@@ -181,22 +183,29 @@
       時才用到），但**算出來的節能百分比天差地遠**。`data/geant_31/` 就是為了比對這個落差
       另外建的 3:1 版本，兩者的 `k_short` 系列檔案共用（見上）。
 
-- [ ] **`routing_DTM_sorted_link.py`（新演算法：link 能耗也納入邊際成本比較）**：複製自
-      `routing_DTM_sorted.py`，唯一差異在 `_run_phase1` 的候選排序邏輯——原版只算「新增幾個
-      switch」（`inactive_counter`，單純計數，不看 link）；這版改成「新增能耗」（新開的 switch
-      能耗總和 + 新開的 link 能耗總和，用真正的 `switch_energy`／`link_energy` 加權），一樣
-      跨所有 hop 層攤平比較選全域最小值（沿用原版 `_run_phase1` 本來就有的「跨 hop 層比較
-      inactive switch 數」架構，只是把比較的量從單純計數換成真正的能耗值，並多算 link 這個
-      維度）。需要新維護一個 `active_links`（比照既有 `active_sw` 的維護方式，在
-      `admit_flow`／`_cascade` 裡同步更新）。
-      - 已註冊進 `sim.py`（`--algorithm sorted_link`）與 `sweep_sorted.py`
-        （`ALGORITHM='sorted_link'` 時，`run_one_combo` 會動態 import
-        `modules.routing_DTM_sorted_link` 而不是 `modules.routing_DTM_sorted`，
-        COMBOS 的設定才套得到正確的模組身上）。
-      - 811:1 下 `sorted` 跟 `sorted_link` 結果幾乎沒差（link 能耗占比太小，改了也比不出高下）；
-        **3:1 下有實質、全面性的提升**（隨機 30-flow×10 組，`sorted` 12.35%→`sorted_link`
-        15.88%，10 組沒有一組變差）。3:1、10-flow 情境下 `sorted_link` 的節能範圍
-        （36.9%~40.4%）已經直接落在論文宣稱的 low-traffic 38~44% 區間內。
+- [ ] **`routing_DTM_sorted_link.py`（新演算法：link 能耗也納入邊際成本比較）——
+      2026-09-15 已砍掉，見下方說明**：曾經複製自 `routing_DTM_sorted.py`，唯一差異在
+      `_run_phase1` 的候選排序邏輯——原版只算「新增幾個 switch」（`inactive_counter`，
+      單純計數，不看 link）；這版改成「新增能耗」（新開的 switch 能耗總和 + 新開的 link
+      能耗總和，用真正的 `switch_energy`／`link_energy` 加權）。
+
+      **為什麼砍掉**：`DTM.py`（Mininet 路徑）當初新增這個演算法時，忘記同步更新散落在
+      好幾個檔案裡、各自硬寫 `ROUTING_ALGORITHM in (tuple)` 的判斷（TCP/UDP 路由分派、
+      `flow_removed_handler` 的守門/`on_flow_removed`、`refresh_link_cache`、
+      `_monitor_energy` 的 spawn 條件），導致選了 `sorted_link` 在 `DTM.py` 幾乎等於路由
+      完全不運作（`sim.py` 這邊是好的，問題只在 `DTM.py`）。2026-09-15 系統性回顧發現
+      這個缺口後，決定不修補，改成把整個演算法砍掉，同時把「哪些演算法需要哪種通用
+      行為」的判斷從散落的 tuple 改成路由模組自我宣告（`REROUTE_STYLE`／
+      `REQUIRED_APP_FEATURES`／`USES_LEGACY_DELAY_INFRA`，見 `routing_base.py`／
+      `startup_requirements.py`）——以後新增路由變體，只要在它自己的檔案宣告這些屬性，
+      不用再同步改好幾個地方。之後如果要重拾「link 能耗納入邊際成本」這個方向，
+      需要重寫候選排序邏輯本身（不只是接上 dispatch）。
+
+      **保留的研究結論**（`sim.py` 跑出來的，資料可信，不受上述 `DTM.py` 缺口影響）：
+      811:1 下 `sorted` 跟 `sorted_link` 結果幾乎沒差（link 能耗占比太小，改了也比不出
+      高下）；**3:1 下有實質、全面性的提升**（隨機 30-flow×10 組，`sorted` 12.35%→
+      `sorted_link` 15.88%，10 組沒有一組變差）。3:1、10-flow 情境下 `sorted_link` 的
+      節能範圍（36.9%~40.4%）已經直接落在論文宣稱的 low-traffic 38~44% 區間內。
 
 - [ ] **系統性回顧進行中（2026-09-09 起）**：完整進度見 memory `dijkstra-systematic-review`。
       已完成：散落舊檔清理（搬 `old/` 或刪除）、checkpoint commit + tag
@@ -227,7 +236,7 @@ Runner 層   watchdog_new / sweep_sorted / run_geant_seed / parse_log / matplotl
 Layer 0     DTM.py  |  sim.py（Simulator + MockApp）              ← 擇一
             啟動時讀 ROUTING_ALGORITHM 只實例化「一個」Layer 1；
             實例化「全部」Layer 2 模組；持有拓撲／鄰接／連線狀態
-Layer 1     routing_DTM_{2020,dijkstra,self,sorted,sorted_link}   ← 繼承 routing_base
+Layer 1     routing_DTM_{2020,dijkstra,self,sorted}   ← 繼承 routing_base
             routing_2014（+ pure_Dijkstra）、routing_auto_k_short  ← 特例，未繼承 RoutingBase
             routing_base.py = 介面契約（抽象父類別），本身不執行任何邏輯
 Layer 2     link_status / bandwidth_measurement / flow_stats /

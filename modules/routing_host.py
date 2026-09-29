@@ -3,7 +3,7 @@
 routing_host.py — Layer 0 ↔ Layer 1 的介面契約
 
 繼承 `RoutingBase` 的路由模組（Layer 1：routing_DTM_2020 / dijkstra / self /
-sorted / sorted_link）在程式裡透過 `self.app.<成員>` 存取 Layer 0。這個 `app`
+sorted）在程式裡透過 `self.app.<成員>` 存取 Layer 0。這個 `app`
 啟動時由 Layer 0 塞進來：`DTM.py` 跑就是 `ProjectController`、`sim.py` 跑就是
 `MockApp`。
 
@@ -74,8 +74,7 @@ class RoutingHost(Protocol):
     """`{(u, v): Mbps}`，雙向都存（同時有 (u,v) 和 (v,u)）。"""
 
     link_energy: Dict[Tuple[int, int], float]
-    """`{(u, v): 瓦特}`，雙向都存。選路邏輯不查它，只有事後算節能報表用
-    （`sorted_link` 的候選排序是唯一例外，會查 link_energy 當邊際成本）。"""
+    """`{(u, v): 瓦特}`，雙向都存。選路邏輯不查它，只有事後算節能報表用。"""
 
     switch_energy: Dict[int, float]
     """`{dpid: 瓦特}`。"""
@@ -141,6 +140,6 @@ class RoutingHostDelay(RoutingHost, Protocol):
 #
 # _flow_sizes: Dict[Tuple[str, str], float]
 #     `{(src_mac, dst_mac): Mbps}`。**只有 MockApp 有**（sim 的合成流量大小）。
-#     `routing_DTM_sorted` / `sorted_link` 用
+#     `routing_DTM_sorted` 用
 #     `getattr(self.app, '_flow_sizes', {})` 防禦性取用：DTM.py 沒有時回 {}，
 #     DANGER 前瞻檢查自動停用。因為是 optional，不列入 required 契約。

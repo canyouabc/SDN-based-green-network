@@ -35,6 +35,10 @@ def _cd_log(msg):
 
 
 class Routing_DTM_Self(RoutingBase):
+    # 用 admit_flow 當下的 cascade 選路，需要 on_flow_removed 通知／
+    # refresh_link_cache 維持內部 link 快取更新（見 modules/startup_requirements.py）。
+    REROUTE_STYLE = 'cascade'
+    REQUIRED_APP_FEATURES = {'link_status'}
 
     def __init__(self, app):
         self.app = app

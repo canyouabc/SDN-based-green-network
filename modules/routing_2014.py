@@ -11,6 +11,12 @@ from ryu.lib import hub
 from .pure_Dijkstra import Pure_Dijkstra
 
 class Routing_2014:
+    # 不繼承 RoutingBase（被動式，packet_in 觸發，介面跟 admit_flow 系列不同），
+    # 沒有 REROUTE_STYLE——不參與 cascade/monitor_poll 那套重路由派送。
+    REQUIRED_APP_FEATURES = {'delay_detection', 'link_delay_measurement', 'get_link_delay_func'}
+    # 需要 legacy_algorithm_support 的延遲偵測執行緒／dynamic_test 分支。
+    USES_LEGACY_DELAY_INFRA = True
+
     def __init__(self, app):
          self.app = app
          self.pure_dijkstra = Pure_Dijkstra(self)

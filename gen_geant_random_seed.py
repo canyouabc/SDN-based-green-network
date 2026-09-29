@@ -17,12 +17,9 @@ import json
 import random
 from itertools import permutations
 
-NUM_HOSTS = 22
-ALL_PAIRS = list(permutations([f'h{i}' for i in range(1, NUM_HOSTS + 1)], 2))  # 462 組
 
-
-def gen_batch(rng, num_flows, bw_min, bw_max):
-    pairs = rng.sample(ALL_PAIRS, num_flows)  # 不重複，同一批不會有同一個 (src,dst) 出現兩次
+def gen_batch(rng, all_pairs, num_flows, bw_min, bw_max):
+    pairs = rng.sample(all_pairs, num_flows)  # 不重複，同一批不會有同一個 (src,dst) 出現兩次
     flows = []
     for src, dst in pairs:
         bw = rng.uniform(bw_min, bw_max)
@@ -31,32 +28,35 @@ def gen_batch(rng, num_flows, bw_min, bw_max):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='GEANT 隨機流量 seed 產生器')
+    parser = argparse.ArgumentParser(description='隨機流量 seed 產生器（每 batch = N 條 flow 同時進場、撐滿整個視窗）')
     parser.add_argument('--seed',        type=int, default=42)
+    parser.add_argument('--hosts',       type=int, default=22, help='host 數（產生 h1..hN），預設沿用原本的 GEANT 22')
     parser.add_argument('--num-flows',   type=int, required=True, help='每個 batch 幾條 flow')
     parser.add_argument('--num-batches', type=int, required=True)
     parser.add_argument('--bw-min',      type=float, default=0.1, help='每條 flow 頻寬下限 (Mbps)')
     parser.add_argument('--bw-max',      type=float, default=20.0, help='每條 flow 頻寬上限 (Mbps)')
+    parser.add_argument('--duration',    type=int, default=900, help='experiment_duration/flow_duration（同一個值，等於整個視窗都不離場）')
     parser.add_argument('--output',      type=str, required=True)
     args = parser.parse_args()
 
-    if args.num_flows > len(ALL_PAIRS):
-        raise ValueError(f'--num-flows={args.num_flows} 超過 22 節點最多可用的 {len(ALL_PAIRS)} 組不重複 pair')
+    all_pairs = list(permutations([f'h{i}' for i in range(1, args.hosts + 1)], 2))
+    if args.num_flows > len(all_pairs):
+        raise ValueError(f'--num-flows={args.num_flows} 超過 {args.hosts} 節點最多可用的 {len(all_pairs)} 組不重複 pair')
 
     rng = random.Random(args.seed)
     batches = []
     for i in range(1, args.num_batches + 1):
         batches.append({
             'batch_id': i,
-            'flows': gen_batch(rng, args.num_flows, args.bw_min, args.bw_max),
+            'flows': gen_batch(rng, all_pairs, args.num_flows, args.bw_min, args.bw_max),
         })
 
     data = {
         'source':              f'隨機產生（seed={args.seed}），每 batch {args.num_flows} 條不重複 host pair，'
                                 f'頻寬均勻分布於 [{args.bw_min}, {args.bw_max}] Mbps',
-        'num_hosts':           NUM_HOSTS,
-        'experiment_duration': 900,
-        'flow_duration':       900,
+        'num_hosts':           args.hosts,
+        'experiment_duration': args.duration,
+        'flow_duration':       args.duration,
         'num_batches':         len(batches),
         'batches':             batches,
     }

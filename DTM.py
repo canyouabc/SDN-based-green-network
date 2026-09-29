@@ -252,7 +252,7 @@ class ProjectController(app_manager.RyuApp):
 
         if ENABLE_ROUTING:
             self.routing_module = routing_module(self)
-            check_dependencies(self, ROUTING_ALGORITHM)
+            check_dependencies(self, self.routing_module)
         else:
             self.routing_module = None
 
@@ -263,7 +263,7 @@ class ProjectController(app_manager.RyuApp):
         # ==================== 執行緒啟動 ====================
         # 8 個背景執行緒該不該 spawn，統一由 modules/startup_requirements.py
         # 的 MONITOR_CONDITIONS 表決定（單一事實來源，見該檔案說明）。
-        monitor_flags = MonitorFlags(ENABLE_ROUTING, ENABLE_DELAY_DETECTION, ENABLE_BANDWIDTH_MEASUREMENT, ROUTING_ALGORITHM)
+        monitor_flags = MonitorFlags(self.routing_module, ENABLE_DELAY_DETECTION, ENABLE_BANDWIDTH_MEASUREMENT)
 
         if should_spawn_monitor('monitor', monitor_flags):
             self.monitor_thread = hub.spawn(self._monitor)
@@ -400,7 +400,7 @@ class ProjectController(app_manager.RyuApp):
         while True:
             try:
                 self.bandwidth_measurement.run_monitor_tick(self.datapaths, self.adjacency, self.link_bw, self.link_status)
-                if ROUTING_ALGORITHM in ('self', 'sorted') and self.routing_module:
+                if self.routing_module and getattr(self.routing_module, 'REROUTE_STYLE', None) == 'cascade':
                     self.routing_module.refresh_link_cache()
             except Exception as e:
                 self.logger.error(f"Error in bandwidth monitor: {e}")
@@ -473,7 +473,7 @@ class ProjectController(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
     def flow_removed_handler(self, ev):
-        if ROUTING_ALGORITHM not in ('2020', 'dijkstra', 'self', 'sorted'):
+        if self.routing_module is None or getattr(self.routing_module, 'REROUTE_STYLE', None) is None:
             return
 
         msg = ev.msg
@@ -491,7 +491,7 @@ class ProjectController(app_manager.RyuApp):
             if src_mac and dst_mac:
                 removed_path = (self.flow_registry.active_flows.get((src_mac, dst_mac)) or {}).get('path')
                 self.remove_active_flow(src_mac, dst_mac, hard_timeout=msg.hard_timeout)
-                if ROUTING_ALGORITHM in ('self', 'sorted') and removed_path and self.routing_module:
+                if removed_path and self.routing_module.REROUTE_STYLE == 'cascade':
                     self.routing_module.on_flow_removed(src_mac, dst_mac, removed_path)
         elif msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
             if src_mac and dst_mac:
@@ -504,7 +504,7 @@ class ProjectController(app_manager.RyuApp):
                     return
                 removed_path = current_entry.get('path')
                 self.remove_active_flow(src_mac, dst_mac)
-                if ROUTING_ALGORITHM in ('self', 'sorted') and removed_path and self.routing_module:
+                if removed_path and self.routing_module.REROUTE_STYLE == 'cascade':
                     self.routing_module.on_flow_removed(src_mac, dst_mac, removed_path)
                     
 		 

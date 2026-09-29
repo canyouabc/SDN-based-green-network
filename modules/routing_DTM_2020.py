@@ -86,6 +86,11 @@ import random
 import time
 
 class Routing_DTM_2020(RoutingBase):
+    # 用 _monitor_DTM 的輪詢重路由（不靠 admit_flow 當下的 cascade），
+    # 不需要 on_flow_removed 通知／refresh_link_cache（見 modules/startup_requirements.py）。
+    REROUTE_STYLE = 'monitor_poll'
+    REQUIRED_APP_FEATURES = {'link_status'}
+
     def __init__(self, app):
         self.app = app
         self.link_status = app.link_status

@@ -3,7 +3,7 @@
 legacy_algorithm_support.py - 只服務 2014／auto_k_short 的歷史程式碼
 
 這裡打包的東西，在現行 ROUTING_ALGORITHM（'sorted' 等 2020/dijkstra/self/
-sorted/sorted_link 這條主線）下完全不會被用到：
+sorted 這條主線）下完全不會被用到：
 
 - detector／switch_to_switch_delay_count／handle_echo_reply：延遲偵測執行緒，
   依 startup_requirements.py 的依賴表，只有 '2014' 跟 'auto_k_short' 需要，

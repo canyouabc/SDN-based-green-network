@@ -10,6 +10,13 @@ import heapq
 import os
 
 class Auto_routing_k_short:
+    # 不是路由演算法，是借用 routing 槽位在啟動時跑一次的 k-shortest path
+    # 產生工具，沒有 REROUTE_STYLE。
+    REQUIRED_APP_FEATURES = {'delay_detection', 'link_delay_measurement'}
+    # 需要 legacy_algorithm_support 的延遲偵測執行緒／dynamic_test 分支
+    # （dynamic_test 裡真正產生 k_short.txt 的那段邏輯）。
+    USES_LEGACY_DELAY_INFRA = True
+
     def __init__(self, app):
         self.app = app
     def _calculate_path_cost(self, switch_path, link_energy, switch_energy):
