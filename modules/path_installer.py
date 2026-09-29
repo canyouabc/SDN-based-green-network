@@ -18,6 +18,10 @@ remove_flows_for_path 目前沒有任何呼叫者（DTM.py 內外都沒有），
     self.path_installer.install_flows_for_path(path, src_mac, dst_mac, priority)
 """
 
+# 反向規則的 cookie：過期通知由 DTM.py flow_removed_handler 忽略，
+# 避免 (a,b) 的反向規則過期被誤當成 (b,a) 的規則過期
+REVERSE_RULE_COOKIE = 0x5245
+
 
 class PathInstaller:
     def __init__(self, app, base_priority):
@@ -98,6 +102,7 @@ class PathInstaller:
                 datapath=datapath, match=match_rev,
                 idle_timeout=idle_timeout, hard_timeout=hard_timeout,
                 priority=priority, flags=ofproto.OFPFF_SEND_FLOW_REM,
+                cookie=REVERSE_RULE_COOKIE,
                 instructions=inst_rev
             )
             datapath.send_msg(mod_rev)

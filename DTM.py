@@ -38,6 +38,7 @@ _bw_logger.addHandler(_bw_fh)
 ENABLE_DELAY_DETECTION = False
 ENABLE_ROUTING = True
 ENABLE_BANDWIDTH_MEASUREMENT = True
+ENABLE_FLOW_ORACLE = False   # 驗證用：active flow 完全由 watchdog --oracle 告知（見 modules/flow_oracle.py）
 # =========================================================
 
 # ==================== 路由演算法選擇 ====================
@@ -146,6 +147,7 @@ if ENABLE_BANDWIDTH_MEASUREMENT:
 
 from modules.arp_handler import ArpHandler
 from modules.energy_data import EnergyData
+from modules.flow_oracle import FlowOracle
 from modules.flow_registry import FlowRegistry
 from modules.flow_stats import FlowStats
 from modules.history_reporter import HistoryReporter
@@ -153,7 +155,7 @@ from modules.host_discovery import HostDiscovery
 from modules.legacy_algorithm_support import LegacyAlgorithmSupport
 from modules.packet_throttle import PacketThrottle
 from modules.packet_in_router import PacketInRouter
-from modules.path_installer import PathInstaller
+from modules.path_installer import PathInstaller, REVERSE_RULE_COOKIE
 from modules.reroute_policy import ReroutePolicy
 from modules.topology_readiness import TopologyReadiness
 from modules.startup_requirements import check_dependencies, MonitorFlags, should_spawn_monitor
@@ -236,6 +238,7 @@ class ProjectController(app_manager.RyuApp):
         self.flow_stats = FlowStats(self)
         self.host_discovery = HostDiscovery(self)
         self.history_reporter = HistoryReporter(self)
+        self.flow_oracle = FlowOracle(self, idle_timeout=5) if ENABLE_FLOW_ORACLE else None
         self.legacy_algorithm_support = LegacyAlgorithmSupport(self, ENABLE_DELAY_DETECTION, ROUTING_ALGORITHM)
         self.arp_handler = ArpHandler(self)
         self.path_installer = PathInstaller(self, FLOW_BASE_PRIORITY)
@@ -261,9 +264,10 @@ class ProjectController(app_manager.RyuApp):
  
         
         # ==================== 執行緒啟動 ====================
-        # 8 個背景執行緒該不該 spawn，統一由 modules/startup_requirements.py
+        # 9 個背景執行緒該不該 spawn，統一由 modules/startup_requirements.py
         # 的 MONITOR_CONDITIONS 表決定（單一事實來源，見該檔案說明）。
-        monitor_flags = MonitorFlags(self.routing_module, ENABLE_DELAY_DETECTION, ENABLE_BANDWIDTH_MEASUREMENT)
+        monitor_flags = MonitorFlags(self.routing_module, ENABLE_DELAY_DETECTION, ENABLE_BANDWIDTH_MEASUREMENT,
+                                     ENABLE_FLOW_ORACLE)
 
         if should_spawn_monitor('monitor', monitor_flags):
             self.monitor_thread = hub.spawn(self._monitor)
@@ -281,6 +285,8 @@ class ProjectController(app_manager.RyuApp):
             self.dtm_monitor_thread = hub.spawn(self._monitor_DTM)
         if should_spawn_monitor('monitor_energy', monitor_flags):
             self.energy_monitor_thread = hub.spawn(self._monitor_energy)
+        if should_spawn_monitor('flow_oracle', monitor_flags):
+            self.flow_oracle_thread = hub.spawn(self._flow_oracle_listener)
             
 
     # =========================================
@@ -383,6 +389,12 @@ class ProjectController(app_manager.RyuApp):
             self.energy_data.calculate_energy_saving_from_flows()
             hub.sleep(1)
 
+    def _flow_oracle_listener(self):
+        """驗證用：輪詢 watchdog 寫入的 flow 開始／結束通知"""
+        while True:
+            self.flow_oracle.poll()
+            hub.sleep(0.05)
+
     def _flow_stats_monitor(self):
         """Flow stats 輪詢線程（每秒 1 次）
         只向有 assigned flow 的 switch 發送 OFPFlowStatsRequest。
@@ -475,6 +487,8 @@ class ProjectController(app_manager.RyuApp):
     def flow_removed_handler(self, ev):
         if self.routing_module is None or getattr(self.routing_module, 'REROUTE_STYLE', None) is None:
             return
+        if self.flow_oracle is not None:
+            return  # oracle 模式：flow 存活由 oracle 決定，規則過期不影響 active_flows
 
         msg = ev.msg
         dp = msg.datapath
@@ -482,6 +496,8 @@ class ProjectController(app_manager.RyuApp):
 
         if msg.priority < FLOW_BASE_PRIORITY:
             return
+        if msg.cookie == REVERSE_RULE_COOKIE:
+            return  # 反向規則過期，不代表任何 flow 結束
 
         match = msg.match
         src_mac = match.get('eth_src')

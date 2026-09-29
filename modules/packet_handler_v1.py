@@ -53,6 +53,9 @@ class PacketHandlerV1:
         # ★ 已有 active flow，不重複計算
         if pair in self.app.flow_registry.active_flows:
             return
+        # oracle 模式：flow 只由 oracle 告知 admit，其他封包（如 iperf 回傳報告）不當成新 flow
+        if self.app.flow_oracle is not None:
+            return
 
         # === 以下才是真正的處理邏輯 ===
         self.app.logger.debug(f"[UNKNOWN_TCP] switch {datapath.id}, pair {pair}, count {count}")
@@ -137,6 +140,9 @@ class PacketHandlerV1:
 
         # ★ 已有 active flow，不重複計算
         if pair in self.app.flow_registry.active_flows:
+            return
+        # oracle 模式：flow 只由 oracle 告知 admit，其他封包（如 iperf 回傳報告）不當成新 flow
+        if self.app.flow_oracle is not None:
             return
 
         # === 以下才是真正的處理邏輯 ===

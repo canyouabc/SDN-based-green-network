@@ -47,6 +47,8 @@ EXPERIMENT_DURATION = 150  # seconds
 FLOW_DURATION = 15         # seconds
 LAMBDA = 1 / 3             # Poisson rate (期望間隔 3s)
 IPERF_PORT = 5001
+ORACLE = False                          # --oracle：flow 開始／結束直接告知 controller（需 DTM.py ENABLE_FLOW_ORACLE=True）
+FLOW_ORACLE_QUEUE = "flow_oracle.queue" # 與 modules/flow_oracle.py 的 FLOW_ORACLE_QUEUE 相同
 
 def cleanup_mininet():
     subprocess.run(["sudo", "mn", "-c"], capture_output=True)
@@ -134,6 +136,19 @@ def launch_flow(src, dst, bw_mbps):
     print(f"[flow] {src} -> {dst} ({bw_mbps:.1f} Mbps)")
     tmux_send(MN_SESSION, cmd)
 
+def host_mac(host):
+    """h15 -> 00:00:00:00:00:0f（topo 腳本的 host mac 規則）"""
+    return "00:00:00:00:00:{:02x}".format(int(host[1:]))
+
+def oracle_notify(kind, src, dst, bw_mbps=None):
+    """寫一行 oracle 事件：'start src_mac dst_mac bw' 或 'end src_mac dst_mac'"""
+    line = f"{kind} {host_mac(src)} {host_mac(dst)}"
+    if bw_mbps is not None:
+        line += f" {bw_mbps}"
+    with open(FLOW_ORACLE_QUEUE, "a") as f:
+        f.write(line + "\n")
+    print(f"[oracle] {kind} {src} -> {dst}")
+
 def extract_activeflow_log(src_log, dst_log):
     """從 ryu log 抽出 [ActiveFlow] 新增/移除 與 [SNAPSHOT]，寫入 dst_log"""
     keywords = ("[ActiveFlow] 新增", "[ActiveFlow] 移除", "[SNAPSHOT]", "[NonShortest]",
@@ -176,16 +191,25 @@ def run_experiment_from_seed(flows):
     if not flows:
         return
 
-    first = flows[0]
-    launch_flow(first["src"], first["dst"], first["bw_mbps"])
-    start_time = time.time()
+    # (時間, 種類, flow)；種類 0=啟動、1=結束通知（只在 --oracle 時加入，
+    # 且只通知實驗時間內到期的，比照 sim.py 只處理 exp_dur 內的 depart）
+    events = [(f["interval"], 0, f) for f in flows]
+    if ORACLE:
+        events += [(f["interval"] + FLOW_DURATION, 1, f) for f in flows
+                   if f["interval"] + FLOW_DURATION <= EXPERIMENT_DURATION]
+    events.sort(key=lambda e: (e[0], e[1]))
 
-    for flow in flows[1:]:
-        target = flow["interval"]
-        wait = target - (time.time() - start_time)
+    start_time = time.time()
+    for t, kind, flow in events:
+        wait = t - (time.time() - start_time)
         if wait > 0:
             time.sleep(wait)
-        launch_flow(flow["src"], flow["dst"], flow["bw_mbps"])
+        if kind == 0:
+            if ORACLE:
+                oracle_notify("start", flow["src"], flow["dst"], flow["bw_mbps"])  # 先告知，controller 才能先裝好路徑
+            launch_flow(flow["src"], flow["dst"], flow["bw_mbps"])
+        else:
+            oracle_notify("end", flow["src"], flow["dst"])
 
     remaining = EXPERIMENT_DURATION - (time.time() - start_time)
     if remaining > 0:
@@ -199,7 +223,10 @@ if __name__ == "__main__":
                         help="種子檔路徑，例如 seed_42.json；不指定則隨機產生")
     parser.add_argument("--topo", default='grid', choices=list(TOPO_SCRIPTS.keys()),
                         help="拓撲類型，決定要開哪個 topo 腳本、HOSTS 有幾台（預設 'grid'，5x5）")
+    parser.add_argument("--oracle", action="store_true",
+                        help="flow 開始／結束直接告知 controller（驗證用，需 DTM.py ENABLE_FLOW_ORACLE=True）")
     args = parser.parse_args()
+    ORACLE = args.oracle
 
     topo_script, topo_host_count = TOPO_SCRIPTS[args.topo]
     HOSTS = [f"h{i}" for i in range(1, topo_host_count + 1)]
@@ -235,6 +262,9 @@ if __name__ == "__main__":
 
         ryu_log = f"{run_dir}/DTM-b{batch_id}.txt"
         mn_log  = f"{run_dir}/mininet-b{batch_id}.txt"
+
+        if ORACLE:
+            open(FLOW_ORACLE_QUEUE, "w").close()   # 清空上一批殘留的通知
 
         print("[watchdog] 啟動 Ryu...")
         new_tmux(RYU_SESSION, "ryu-manager DTM.py --observe-links", ryu_log)

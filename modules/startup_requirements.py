@@ -43,7 +43,7 @@ ENABLE_DELAY_DETECTION 狀態、會在關閉時變成 None 的，是
 delay_detection / link_delay_measurement 這兩個物件本身。
 
 ── MonitorFlags / should_spawn_monitor ─────────────────────────────
-8 個背景執行緒該不該 spawn，同樣改成讀路由模組的自我宣告：
+9 個背景執行緒該不該 spawn，同樣改成讀路由模組的自我宣告：
 - monitor／link_ready_watcher／flow_stats_monitor：無條件——跟哪個
   routing_module 無關，每種都需要或都不影響。
 - bandwidth_monitor：只看 ENABLE_BANDWIDTH_MEASUREMENT 旗標——
@@ -51,6 +51,8 @@ delay_detection / link_delay_measurement 這兩個物件本身。
   在啟動當下就 fail-fast，這裡不用重複判斷。
 - monitor_dtm：routing_module.REROUTE_STYLE == 'monitor_poll'
 - monitor_energy：routing_module.REROUTE_STYLE == 'cascade'
+- flow_oracle：ENABLE_FLOW_ORACLE 旗標開，且 routing_module 有參與
+  REROUTE_STYLE 派送（跟 flow_removed_handler 同一個守門條件）
 - legacy_detector／legacy_dynamic_test：
   routing_module.USES_LEGACY_DELAY_INFRA（legacy_detector 另外還要
   ENABLE_DELAY_DETECTION 旗標也開）
@@ -86,10 +88,11 @@ def check_dependencies(app, routing_module):
 
 MonitorFlags = namedtuple('MonitorFlags', [
     'routing_module', 'enable_delay_detection', 'enable_bandwidth_measurement',
-])
+    'enable_flow_oracle',
+], defaults=(False,))
 
 # {monitor 名稱: 條件 function(MonitorFlags) -> bool}
-# 全部 8 個 hub.spawn 都透過這張表決定，即使條件是「永遠 True」也放進來，
+# 全部 9 個 hub.spawn 都透過這張表決定，即使條件是「永遠 True」也放進來，
 # 讓這張表成為「誰會被 spawn」的單一事實來源。
 MONITOR_CONDITIONS = {
     'monitor':             lambda f: True,
@@ -98,6 +101,7 @@ MONITOR_CONDITIONS = {
     'bandwidth_monitor':   lambda f: f.enable_bandwidth_measurement,
     'monitor_dtm':         lambda f: getattr(f.routing_module, 'REROUTE_STYLE', None) == 'monitor_poll',
     'monitor_energy':      lambda f: getattr(f.routing_module, 'REROUTE_STYLE', None) == 'cascade',
+    'flow_oracle':         lambda f: f.enable_flow_oracle and getattr(f.routing_module, 'REROUTE_STYLE', None) is not None,
     'legacy_detector':     lambda f: f.enable_delay_detection and getattr(f.routing_module, 'USES_LEGACY_DELAY_INFRA', False),
     'legacy_dynamic_test': lambda f: getattr(f.routing_module, 'USES_LEGACY_DELAY_INFRA', False),
 }
