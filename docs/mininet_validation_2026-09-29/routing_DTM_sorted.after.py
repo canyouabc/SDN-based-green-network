@@ -8,7 +8,7 @@ import time
 from .routing_base import RoutingBase
 
 ENABLE_NEW_ALGO = True
-ENABLE_WEIGHT_MAP = True    # True：Phase 2 用 base_weight_map 打分；False：並列時直接 random
+ENABLE_WEIGHT_MAP = False   # True：Phase 2 用 base_weight_map 打分；False：並列時直接 random
 SORT_MODE = 'SPF'    # 'LPF'：依理論最短 hop 由大到小（現行）
                       # 'DENSITY'：依最小路徑集合在 weight_map 上的平均權重由大到小
                       # 'SPF'：依理論最短 hop 由小到大（最短路徑優先）

@@ -479,7 +479,7 @@ class Routing_DTM_Sorted(RoutingBase):
                 self.非最短hop清單[(fa, fb)] = len(selected)
                 print(f"[NonShortest] 新增: {fa} -> {fb}, hop={len(selected)}")
 
-            self.app.add_active_flow(fa, fb, selected, is_reroute=True, priority=new_priority)
+            self.app.add_active_flow(fa, fb, selected, is_reroute=True)
             print(f"[FLOW_CASCADE] {fa} -> {fb}, path={selected}")
             active_sw.update(selected)
             if WEIGHT_MODE == 'DECAY':
@@ -662,7 +662,7 @@ class Routing_DTM_Sorted(RoutingBase):
                 self.非最短hop清單[(fa, fb)] = len(selected)
                 print(f"[NonShortest] 新增: {fa} -> {fb}, hop={len(selected)}")
 
-            self.app.add_active_flow(fa, fb, selected, is_reroute=True, priority=new_priority)
+            self.app.add_active_flow(fa, fb, selected, is_reroute=True)
             print(f"[FLOW_CASCADE] {fa} -> {fb}, path={selected}")
             active_sw.update(selected)
             if WEIGHT_MODE == 'DECAY':

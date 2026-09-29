@@ -1,0 +1,50 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 3b523a7..a1e5a46 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -366,9 +366,13 @@ sudo python cap_topo.py        # 或 grid_topo.py
+ 
+ ### 批次實驗（Mininet）
+ ```bash
+-sudo python3 watchdog_new.py
++python3 watchdog_new.py
+ ```
+ 
++**不要加 `sudo`**：watchdog 用 `gnome-terminal` 在桌面使用者身分下開 tmux session，
++以 root 執行會去找 `/tmp/tmux-0`、找不到 session（`error connecting to /tmp/tmux-0/default`），
++Ryu log 接不進來、`[LINK_READY]` 逾時。需要 root 的步驟（`mn -c`、topo 腳本）watchdog 內部已自己加 `sudo`。
++
+ watchdog 每批實驗流程：
+ 1. 等待 Ryu `[LINK_READY]`（switch/link 數量穩定）後才送 sendarp
+ 2. 等待 ARP 完成、iperf server 啟動、link status 就緒後開始流量
+diff --git a/modules/routing_DTM_sorted.py b/modules/routing_DTM_sorted.py
+index 94d17d6..e6ad030 100644
+--- a/modules/routing_DTM_sorted.py
++++ b/modules/routing_DTM_sorted.py
+@@ -8,7 +8,7 @@ import time
+ from .routing_base import RoutingBase
+ 
+ ENABLE_NEW_ALGO = True
+-ENABLE_WEIGHT_MAP = True    # True：Phase 2 用 base_weight_map 打分；False：並列時直接 random
++ENABLE_WEIGHT_MAP = False   # True：Phase 2 用 base_weight_map 打分；False：並列時直接 random
+ SORT_MODE = 'SPF'    # 'LPF'：依理論最短 hop 由大到小（現行）
+                       # 'DENSITY'：依最小路徑集合在 weight_map 上的平均權重由大到小
+                       # 'SPF'：依理論最短 hop 由小到大（最短路徑優先）
+@@ -479,7 +479,7 @@ class Routing_DTM_Sorted(RoutingBase):
+                 self.非最短hop清單[(fa, fb)] = len(selected)
+                 print(f"[NonShortest] 新增: {fa} -> {fb}, hop={len(selected)}")
+ 
+-            self.app.add_active_flow(fa, fb, selected, is_reroute=True)
++            self.app.add_active_flow(fa, fb, selected, is_reroute=True, priority=new_priority)
+             print(f"[FLOW_CASCADE] {fa} -> {fb}, path={selected}")
+             active_sw.update(selected)
+             if WEIGHT_MODE == 'DECAY':
+@@ -662,7 +662,7 @@ class Routing_DTM_Sorted(RoutingBase):
+                 self.非最短hop清單[(fa, fb)] = len(selected)
+                 print(f"[NonShortest] 新增: {fa} -> {fb}, hop={len(selected)}")
+ 
+-            self.app.add_active_flow(fa, fb, selected, is_reroute=True)
++            self.app.add_active_flow(fa, fb, selected, is_reroute=True, priority=new_priority)
+             print(f"[FLOW_CASCADE] {fa} -> {fb}, path={selected}")
+             active_sw.update(selected)
+             if WEIGHT_MODE == 'DECAY':

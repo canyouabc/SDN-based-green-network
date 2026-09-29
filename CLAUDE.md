@@ -366,8 +366,12 @@ sudo python cap_topo.py        # 或 grid_topo.py
 
 ### 批次實驗（Mininet）
 ```bash
-sudo python3 watchdog_new.py
+python3 watchdog_new.py
 ```
+
+**不要加 `sudo`**：watchdog 用 `gnome-terminal` 在桌面使用者身分下開 tmux session，
+以 root 執行會去找 `/tmp/tmux-0`、找不到 session（`error connecting to /tmp/tmux-0/default`），
+Ryu log 接不進來、`[LINK_READY]` 逾時。需要 root 的步驟（`mn -c`、topo 腳本）watchdog 內部已自己加 `sudo`。
 
 watchdog 每批實驗流程：
 1. 等待 Ryu `[LINK_READY]`（switch/link 數量穩定）後才送 sendarp
