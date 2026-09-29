@@ -24,6 +24,9 @@ PRESEED_ENDPOINTS = False  # True：處理每一輪 flow 前，先把這輪所�
                            # （同一 host pair 不管選哪條 k-short 候選路徑都固定相同）預先標記為 active，
                            # 不讓 clean_zero／inactive_counter 把「反正一定要開」的 switch 誤判成選路的代價。
                            # False（現行／預設）：active_sw 從空集合開始，起訖點也要等流量真的選定路徑才算 active。
+LINK_WEIGHT = False  # False（現行）：Phase1 成本 = 要新開幾台 switch（inactive_counter），不看 link。
+                     # True：Phase1 成本 = 新開 switch 能耗 + 新開 link 能耗（讀 app.switch_energy／app.link_energy，
+                     # 權重與能耗等比例）；「不用新開任何東西」的 clean zero 也要求 link 已開啟。目前只有 sim.py 的 MockApp 有這兩個屬性。
 WEIGHT_SCORE_NEW_ONLY = False  # False（現行）：Phase2 打分加總候選路徑上所有 switch 的 weight_map。
                                 # True：只加總「尚未開啟」（不在 active_sw）的 switch，排除已開啟 switch
                                 # 的權重（反正已經開著，跟本次要不要多開一個新 switch 的決策無關）。
@@ -50,6 +53,23 @@ if CD_DEBUG:
 def _cd_log(msg):
     if CD_DEBUG:
         _cd_logger.debug(msg)
+
+
+class _ActiveElements(set):
+    """LINK_WEIGHT 專用的 active_sw：update(path) 時另外記下路徑上的 link。
+    本模組內 active_sw.update() 一律只傳一條 path。"""
+    def __init__(self):
+        super().__init__()
+        self.links = set()
+
+    def update(self, path):
+        super().update(path)
+        self.links.update((min(a, b), max(a, b)) for a, b in zip(path, path[1:]))
+
+
+def _new_active_sw():
+    """LINK_WEIGHT 關閉時用原本的 set()，預設模式不多任何開銷。"""
+    return _ActiveElements() if LINK_WEIGHT else set()
 
 
 class Routing_DTM_Sorted(RoutingBase):
@@ -258,7 +278,8 @@ class Routing_DTM_Sorted(RoutingBase):
                     continue
                 if self._would_exceed_danger(links, flow_bw):
                     continue
-                if all(sw in active_sw for sw in path):
+                if all(sw in active_sw for sw in path) and (
+                        not LINK_WEIGHT or all(link in active_sw.links for link in links)):
                     clean_zero.append(path)
             if clean_zero:
                 return clean_zero, hop, 0
@@ -274,7 +295,10 @@ class Routing_DTM_Sorted(RoutingBase):
                     any(link in self._overload_links for link in links)
                     or self._would_exceed_danger(links, flow_bw)
                 )
-                inactive_counter = sum(1 for sw in path if sw not in active_sw)
+                if LINK_WEIGHT:
+                    inactive_counter = self._new_energy_cost(path, links, active_sw)
+                else:
+                    inactive_counter = sum(1 for sw in path if sw not in active_sw)
                 tup = (inactive_counter, len(path), path)
                 if not has_overload:
                     valid_paths.append(tup)
@@ -307,6 +331,17 @@ class Routing_DTM_Sorted(RoutingBase):
             elif hop == best_hop:
                 candidates.append(path)
         return candidates, best_hop, best_inactive
+
+    def _new_energy_cost(self, path, links, active_sw):
+        """LINK_WEIGHT 專用：這條路徑要新開的 switch 能耗 + link 能耗（W）。
+        round 避免同樣的能耗組合因加總順序不同產生浮點誤差，導致平手判斷失準。"""
+        switch_energy = getattr(self.app, 'switch_energy', None)
+        link_energy = getattr(self.app, 'link_energy', None)
+        if switch_energy is None or link_energy is None:
+            raise RuntimeError("LINK_WEIGHT=True 需要 app.switch_energy／app.link_energy（目前只有 sim.py 提供）")
+        cost = sum(switch_energy.get(sw, 0) for sw in path if sw not in active_sw)
+        cost += sum(link_energy.get(link, 0) for link in links if link not in active_sw.links)
+        return round(cost, 6)
 
     def _run_phase2(self, candidates, active_sw):
         """
@@ -345,7 +380,7 @@ class Routing_DTM_Sorted(RoutingBase):
             return None
 
         if active_sw is None:
-            active_sw = set()
+            active_sw = _new_active_sw()
 
         candidates, _, _ = self._run_phase1(host_a, host_b, active_sw, remove_path)
         if candidates is None:
@@ -383,7 +418,7 @@ class Routing_DTM_Sorted(RoutingBase):
         # 排序：依 SORT_MODE 決定優先度
         self._sort_flows(all_flows)
 
-        active_sw = set()
+        active_sw = _new_active_sw()
         if PRESEED_ENDPOINTS:
             self._preseed_endpoints(active_sw, all_flows)
         new_flow_path = None
@@ -538,7 +573,7 @@ class Routing_DTM_Sorted(RoutingBase):
             self._build_link_load(all_flows)
         self._sort_flows(all_flows)
 
-        active_sw = set()
+        active_sw = _new_active_sw()
         if PRESEED_ENDPOINTS:
             self._preseed_endpoints(active_sw, all_flows)
 
@@ -592,7 +627,7 @@ class Routing_DTM_Sorted(RoutingBase):
         # 排序：依 SORT_MODE 決定優先度
         self._sort_flows(all_flows)
 
-        active_sw = set()
+        active_sw = _new_active_sw()
         if PRESEED_ENDPOINTS:
             self._preseed_endpoints(active_sw, all_flows)
         _order = [(f[0], f[1], self._global_min_hop.get((f[0], f[1]), 0)) for f in all_flows]

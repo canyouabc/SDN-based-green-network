@@ -68,6 +68,14 @@ _TOPO_FILES = {
         'k_short_dist':    'data/grid/k_short_dist.txt',
         'base_weight_map': 'data/grid/base_weight_map.txt',
     },
+    'grid_31': {   # grid 5x5，能耗 switch:link = 3:1（比照 geant_31），k_short 系列同 data/grid
+        'link_bw':         'data/grid_31/link_bw.txt',
+        'link_energy':     'data/grid_31/link_energy.txt',
+        'switch_energy':   'data/grid_31/switch_energy.txt',
+        'k_short':         'data/grid_31/k_short.txt',
+        'k_short_dist':    'data/grid_31/k_short_dist.txt',
+        'base_weight_map': 'data/grid_31/base_weight_map.txt',
+    },
     'cap': {
         'link_bw':         'data/cap/link_bw.txt',
         'link_energy':     'data/cap/link_energy.txt',

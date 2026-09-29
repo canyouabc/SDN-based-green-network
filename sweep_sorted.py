@@ -74,6 +74,7 @@ BASELINE = {
     'ENABLE_WEIGHT_MAP':    True,
     'PRESEED_ENDPOINTS':    False,
     'WEIGHT_SCORE_NEW_ONLY': False,
+    'LINK_WEIGHT':          False,
 }
 #
 #ENABLE_WEIGHT_MAP = True    # True：Phase 2 用 base_weight_map 打分；False：並列時直接 random

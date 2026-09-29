@@ -1,0 +1,26 @@
+# dpid  type   energy(W)
+1	Grid	3
+2	Grid	3
+3	Grid	3
+4	Grid	3
+5	Grid	3
+6	Grid	3
+7	Grid	3
+8	Grid	3
+9	Grid	3
+10	Grid	3
+11	Grid	3
+12	Grid	3
+13	Grid	3
+14	Grid	3
+15	Grid	3
+16	Grid	3
+17	Grid	3
+18	Grid	3
+19	Grid	3
+20	Grid	3
+21	Grid	3
+22	Grid	3
+23	Grid	3
+24	Grid	3
+25	Grid	3
