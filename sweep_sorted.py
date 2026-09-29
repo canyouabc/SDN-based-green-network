@@ -46,7 +46,10 @@ class _AppendTee:
     """用 append（'a'）模式持續開著檔案，而不是 sim._Tee 的 'w'（截斷）模式；
     這樣才能跟 Simulator._log() 各自獨立開檔、寫入同一份檔案時不會互相截斷內容。"""
     def __init__(self, filepath, stdout):
-        self._file = open(filepath, 'a', encoding='utf-8')
+        # buffering=1（逐行緩衝）：預設 8KB 區塊緩衝會在一行中間切斷寫出，Simulator._log() 另開檔
+        # 寫入的整行就黏在半行後面，parse_log 以行首比對 ENERGY/BATCH 時會漏掉
+        # （2026-09-29 查到：70 次 run 全數受影響，平均每次漏約 2% 的 ENERGY 取樣）。
+        self._file = open(filepath, 'a', encoding='utf-8', buffering=1)
         self._stdout = stdout
 
     def write(self, data):
@@ -75,6 +78,8 @@ BASELINE = {
     'PRESEED_ENDPOINTS':    False,
     'WEIGHT_SCORE_NEW_ONLY': False,
     'LINK_WEIGHT':          False,
+    'PATH_INIT':            'SGH',
+    'LINK_PRUNE':           None,
 }
 #
 #ENABLE_WEIGHT_MAP = True    # True：Phase 2 用 base_weight_map 打分；False：並列時直接 random

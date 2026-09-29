@@ -27,6 +27,15 @@ PRESEED_ENDPOINTS = False  # True：處理每一輪 flow 前，先把這輪所�
 LINK_WEIGHT = False  # False（現行）：Phase1 成本 = 要新開幾台 switch（inactive_counter），不看 link。
                      # True：Phase1 成本 = 新開 switch 能耗 + 新開 link 能耗（讀 app.switch_energy／app.link_energy，
                      # 權重與能耗等比例）；「不用新開任何東西」的 clean zero 也要求 link 已開啟。目前只有 sim.py 的 MockApp 有這兩個屬性。
+PATH_INIT = 'SGH'   # 'SGH'（現行）：Phase1/Phase2 照 SGH 選路。
+                    # 'SHORTEST'：每條 flow 從全局最短 hop 的 k-short 候選中隨機挑一條（「純 NSP」的初始路徑，
+                    # 對應 Assefa & Ozkasap 2017 Alg.1；不做 OVERLOAD／DANGER 篩選）。
+LINK_PRUNE = None   # None（現行）：不做選路後處理。
+                    # 'NSP_COUNT'：NSP 變種（以 flow 數取代頻寬使用率）。每輪選路完成後，已開啟的 link 依
+                    # 「經過的 flow 數」由少到多排序一次（同數隨機），逐條嘗試：在兩端 switch 間找只走其他已開啟
+                    # link 的最短替代路徑（同長隨機；頻寬需 <= PRUNE_U_MAX），成功就把該 link 上的 flow 全部改走
+                    # 替代路徑並關閉它。只走已開啟 link -> 每次成功必淨省一條 link、不會多開任何元件。
+PRUNE_U_MAX = 0.95  # LINK_PRUNE 替代路徑上各 link 的頻寬使用率上限（論文 U_max）
 WEIGHT_SCORE_NEW_ONLY = False  # False（現行）：Phase2 打分加總候選路徑上所有 switch 的 weight_map。
                                 # True：只加總「尚未開啟」（不在 active_sw）的 switch，排除已開啟 switch
                                 # 的權重（反正已經開著，跟本次要不要多開一個新 switch 的決策無關）。
@@ -268,6 +277,10 @@ class Routing_DTM_Sorted(RoutingBase):
 
     def _run_phase1(self, host_a, host_b, active_sw, remove_path):
         """Phase 1：優先找「所有 switch 都已在 active_sw 中」的路徑"""
+        if PATH_INIT == 'SHORTEST':   # 純 NSP 初始路徑：全局最短 hop 候選全數交給 Phase2（隨機挑）
+            hop = self.k_short_hop_keys[(host_a, host_b)][0]
+            paths = [p for p, _ in self.k_short_paths_by_hop[(host_a, host_b)][hop] if p != remove_path]
+            return (paths, hop, 0) if paths else (None, None, None)
         flow_bw = self._get_flow_bw(host_a, host_b)
         for hop in self.k_short_hop_keys[(host_a, host_b)]:
             clean_zero = []
@@ -529,6 +542,11 @@ class Routing_DTM_Sorted(RoutingBase):
                     'old_path': current_path, 'new_path': selected, 'changed': True
                 })
 
+        if LINK_PRUNE:
+            self._prune_links()
+            new_flow_path = next((p for a, b, p in self.app.get_active_flows()
+                                  if (a, b) == (host_a, host_b)), new_flow_path)
+
         elapsed = time.time() - _t0
         print(f"[SORTED_TIME] flows={len(all_flows)-1} elapsed={elapsed:.4f}s")
         return new_flow_path
@@ -712,8 +730,129 @@ class Routing_DTM_Sorted(RoutingBase):
                     'old_path': current_path, 'new_path': selected, 'changed': True
                 })
 
+        if LINK_PRUNE:
+            self._prune_links()
+
         elapsed = time.time() - _t0
         print(f"[CASCADE_TIME] {elapsed:.4f}s")
+
+    # =========================================================
+    # LINK_PRUNE='NSP_COUNT'：選路後處理（NSP 變種，以 flow 數排序）
+    # =========================================================
+
+    @staticmethod
+    def _path_links(path):
+        return [(min(u, v), max(u, v)) for u, v in zip(path, path[1:])]
+
+    @staticmethod
+    def _remove_loops(path):
+        """替代路徑讓 flow 重複經過同一台 switch 時，剪掉中間那段迴圈（保留第一次出現）。"""
+        out, pos = [], {}
+        for node in path:
+            if node in pos:
+                cut = pos[node]
+                for dropped in out[cut + 1:]:
+                    del pos[dropped]
+                out = out[:cut + 1]
+            else:
+                pos[node] = len(out)
+                out.append(node)
+        return out
+
+    def _find_detour(self, link, on_link, load, moved_bw):
+        """在 link 兩端之間找只走其他已開啟 link 的替代路徑：由短到長，頻寬需 <= PRUNE_U_MAX，同長隨機。"""
+        i, j = link
+        adj = {}
+        for (u, v), ks in on_link.items():
+            if ks and (u, v) != link:
+                adj.setdefault(u, []).append(v)
+                adj.setdefault(v, []).append(u)
+        if i not in adj or j not in adj:
+            return None
+
+        def feasible(path):
+            for x in self._path_links(path):
+                cap = self.app.link_bw.get(x, 0)
+                if cap > 0 and (load.get(x, 0.0) + moved_bw) / cap > PRUNE_U_MAX:
+                    return False
+            return True
+
+        # 依節點數逐層列舉簡單路徑（DFS 限長），每層收集可行者後隨機挑一條
+        for n_nodes in range(3, len(adj) + 1):
+            found = []
+            stack = [(i, [i])]
+            while stack:
+                node, path = stack.pop()
+                if len(path) == n_nodes:
+                    if node == j and feasible(path):
+                        found.append(path)
+                    continue
+                for nxt in adj.get(node, ()):
+                    if nxt not in path and (nxt != j or len(path) + 1 == n_nodes):
+                        stack.append((nxt, path + [nxt]))
+            if found:
+                return random.choice(found)
+        return None
+
+    def _prune_links(self):
+        flows = {(a, b): list(p) for a, b, p in self.app.get_active_flows()}
+        if not flows:
+            return
+        original = dict(flows)
+        bw = {k: self._get_flow_bw(*k) for k in flows}
+        on_link, load = {}, {}
+        for k, p in flows.items():
+            for x in self._path_links(p):
+                on_link.setdefault(x, set()).add(k)
+                load[x] = load.get(x, 0.0) + bw[k]
+
+        order = list(on_link)
+        random.shuffle(order)                        # 同 flow 數時隨機
+        order.sort(key=lambda x: len(on_link[x]))    # 只在一開始排序一次（flow 數由少到多）
+        for link in order:
+            movers = list(on_link.get(link, ()))
+            if not movers:
+                continue
+            detour = self._find_detour(link, on_link, load, sum(bw[k] for k in movers))
+            if detour is None:
+                continue
+            for k in movers:
+                path = flows[k]
+                for t in range(len(path) - 1):
+                    if (min(path[t], path[t + 1]), max(path[t], path[t + 1])) == link:
+                        seg = detour if path[t] == detour[0] else detour[::-1]
+                        new_path = self._remove_loops(path[:t] + seg + path[t + 2:])
+                        break
+                for x in self._path_links(path):
+                    on_link[x].discard(k)
+                    load[x] -= bw[k]
+                for x in self._path_links(new_path):
+                    on_link.setdefault(x, set()).add(k)
+                    load[x] = load.get(x, 0.0) + bw[k]
+                flows[k] = new_path
+
+        for (fa, fb), new_path in flows.items():
+            if new_path != original[(fa, fb)]:
+                self._apply_prune_reroute(fa, fb, original[(fa, fb)], new_path)
+
+    def _apply_prune_reroute(self, fa, fb, old_path, new_path):
+        """比照 cascade 換路：裝新規則、更新 active_flows／非最短 hop 清單／link_load。"""
+        new_pwp = self.app.build_path_with_ports(new_path, fa, fb)
+        if new_pwp is None:
+            return
+        new_priority = self.app._get_next_flow_priority(fa, fb)
+        self.app.install_flows_for_path(new_pwp, fa, fb, priority=new_priority, idle_timeout=5)
+        self.app.remove_active_flow(fa, fb)
+        global_min_hop = self._global_min_hop.get((fa, fb))
+        self.非最短hop清單.pop((fa, fb), None)
+        if global_min_hop is not None and len(new_path) > global_min_hop:
+            self.非最短hop清單[(fa, fb)] = len(new_path)
+        self.app.add_active_flow(fa, fb, new_path, is_reroute=True, priority=new_priority)
+        print(f"[FLOW_PRUNE] {fa} -> {fb}, path={new_path}")
+        if LOAD_CHECK_MODE == 'INCREMENTAL':
+            flow_bw = self._get_flow_bw(fa, fb)
+            self._remove_link_load(old_path, flow_bw)
+            self._add_link_load(new_path, flow_bw)
 
     # =========================================================
     # 載入 k_short.txt
