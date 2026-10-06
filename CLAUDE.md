@@ -247,6 +247,12 @@
       之後的實驗不依賴它。`sweep_sorted.py` 預設 `KEEP_RAW_LOG=False`（轉完 csv 刪原始 log）；
       同名 combo 同一秒跑完時資料夾會自動加 `_2`，不會互相覆蓋。
 
+- [ ] **`LINK_WEIGHT` 2026-10-06 起預設 `True`**（`routing_DTM_sorted.py` 模組常數與 `sweep_sorted.py` 的 `BASELINE`）：
+      Phase1 成本 = 新開 switch 能耗 + 新開 link 能耗。之後的實驗（SGH／ESP／NSP 各組合）都預設開 LW，
+      要跑原始 SGH（只數新開 switch）要在 combo 明寫 `'LINK_WEIGHT': False`。**10-06 以前的實驗結果都是 `False`**。
+      `DTM.py` 也有 `switch_energy`／`link_energy`（`modules/energy_data.py`），已靜態確認 key 格式相容，尚未實際開 Mininet 跑過。
+      3:1 下的已知現象：LW 開啟後 NSP 在 grid 3×3／4×4 幾乎沒有額外效果（5×5 仍約 +1pp），見 `thesis_figures/plot_nsp9_lw_31.py`。
+
 - [ ] **死 import 殘留**：`routing_DTM_2020.py:83` 還有一個未使用的
       `from .link_status import Link_Status`（該模組只用 `app.link_status`）；
       `routing_2014.py:10` 有未使用的 `from ryu.lib import hub`（只在 Mininet 用，暫不影響）。

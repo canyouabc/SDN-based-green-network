@@ -24,9 +24,10 @@ PRESEED_ENDPOINTS = False  # True：處理每一輪 flow 前，先把這輪所�
                            # （同一 host pair 不管選哪條 k-short 候選路徑都固定相同）預先標記為 active，
                            # 不讓 clean_zero／inactive_counter 把「反正一定要開」的 switch 誤判成選路的代價。
                            # False（現行／預設）：active_sw 從空集合開始，起訖點也要等流量真的選定路徑才算 active。
-LINK_WEIGHT = False  # False（現行）：Phase1 成本 = 要新開幾台 switch（inactive_counter），不看 link。
-                     # True：Phase1 成本 = 新開 switch 能耗 + 新開 link 能耗（讀 app.switch_energy／app.link_energy，
-                     # 權重與能耗等比例）；「不用新開任何東西」的 clean zero 也要求 link 已開啟。目前只有 sim.py 的 MockApp 有這兩個屬性。
+LINK_WEIGHT = True   # True（現行，2026-10-06 起預設）：Phase1 成本 = 新開 switch 能耗 + 新開 link 能耗（讀 app.switch_energy／
+                     # app.link_energy，權重與能耗等比例）；「不用新開任何東西」的 clean zero 也要求 link 已開啟。
+                     # sim.py 的 MockApp 與 DTM.py（modules/energy_data.py）都有這兩個屬性。
+                     # False：Phase1 成本 = 要新開幾台 switch（inactive_counter），不看 link（原始 SGH）。
 PATH_INIT = 'SGH'   # 'SGH'（現行）：Phase1/Phase2 照 SGH 選路。
                     # 'SHORTEST'：每條 flow 從全局最短 hop 的 k-short 候選中隨機挑一條（「純 NSP」的初始路徑，
                     # 對應 Assefa & Ozkasap 2017 Alg.1；不做 OVERLOAD／DANGER 篩選）。
@@ -351,7 +352,7 @@ class Routing_DTM_Sorted(RoutingBase):
         switch_energy = getattr(self.app, 'switch_energy', None)
         link_energy = getattr(self.app, 'link_energy', None)
         if switch_energy is None or link_energy is None:
-            raise RuntimeError("LINK_WEIGHT=True 需要 app.switch_energy／app.link_energy（目前只有 sim.py 提供）")
+            raise RuntimeError("LINK_WEIGHT=True 需要 app.switch_energy／app.link_energy")
         cost = sum(switch_energy.get(sw, 0) for sw in path if sw not in active_sw)
         cost += sum(link_energy.get(link, 0) for link in links if link not in active_sw.links)
         return round(cost, 6)

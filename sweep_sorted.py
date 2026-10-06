@@ -89,7 +89,7 @@ BASELINE = {
     'ENABLE_WEIGHT_MAP':    True,
     'PRESEED_ENDPOINTS':    False,
     'WEIGHT_SCORE_NEW_ONLY': False,
-    'LINK_WEIGHT':          False,
+    'LINK_WEIGHT':          True,    # 2026-10-06 起預設開啟；要跑原始 SGH 在 combo 寫 'LINK_WEIGHT': False
     'PATH_INIT':            'SGH',
     'LINK_PRUNE':           None,
 }
