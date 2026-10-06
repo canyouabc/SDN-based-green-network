@@ -1,0 +1,975 @@
+{
+ "note": "sim 用 seed 的產生參數。檔案本身不保存，用 `python regen_seeds.py <檔名>` 依此重產（gen_seed.py 同參數必定產生相同內容）。",
+ "seeds": {
+  "seed_000_cap.json": {
+   "seed": 0,
+   "num_hosts": 54,
+   "experiment_duration": 150,
+   "flow_duration": 40,
+   "lambda": 1.0,
+   "bw_min": 10,
+   "bw_max": 40,
+   "num_batches": 3
+  },
+  "seed_000_cap_fixedbw.json": {
+   "seed": 0,
+   "num_hosts": 54,
+   "experiment_duration": 150,
+   "flow_duration": 40.0,
+   "lambda": 1.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_a10.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.666667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_a20.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.333333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_a40.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.666667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k01.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.066667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k02.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.133333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k03.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.2,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k04.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.266667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k05.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.333333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k06.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.4,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k07.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.466667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k08.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.533333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k09.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.6,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k11.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.733333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k12.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.8,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k13.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.866667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k14.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.933333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k15.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_geant_k16.json": {
+   "seed": 0,
+   "num_hosts": 22,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.066667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_high.json": {
+   "seed": 2,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.266667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k03.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.05,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k05.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.083333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k06.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.1,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k07.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.116667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k09.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.15,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k10.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.166667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k11.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.183333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k12.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.2,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k13.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.216667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k14.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.233333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_k15.json": {
+   "seed": 2,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.25,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_low.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.066667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_mid.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.133333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_xlow.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.033333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid2x2_xxlow.json": {
+   "seed": 0,
+   "num_hosts": 4,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.016667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_high.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k03.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.375,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k05.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.625,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k06.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.75,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k07.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.875,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k09.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.125,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k10.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.25,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k11.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.375,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k12.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k13.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.625,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k14.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.75,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_k15.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.875,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_low.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_mid.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_xlow.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.25,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid3x3_xxlow.json": {
+   "seed": 0,
+   "num_hosts": 8,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.125,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_allhosts.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_allhosts_a10.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.666667,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_allhosts_a5.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.333333,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_allhosts_test.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 3
+  },
+  "seed_000_grid4x4_high.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 4.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k03.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.75,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k05.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.25,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k06.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k07.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.75,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k09.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.25,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k10.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k11.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.75,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k12.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 3.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k13.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 3.25,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k14.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 3.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_k15.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 3.75,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_low.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_mid.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_xlow.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid4x4_xxlow.json": {
+   "seed": 0,
+   "num_hosts": 12,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.25,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_a3.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.2,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_high.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 8.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k03.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k05.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k06.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 3.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k07.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 3.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k09.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 4.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k10.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 5.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k11.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 5.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k12.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 6.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k13.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 6.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k14.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 7.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_k15.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 7.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_low.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_low_bw25.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.0,
+   "bw_min": 25.0,
+   "bw_max": 50.0,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_mid.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 4.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_xlow.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_xlow_bw25.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.0,
+   "bw_min": 25.0,
+   "bw_max": 50.0,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_xxlow.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.5,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_000_grid5x5_xxlow_bw25.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 0.5,
+   "bw_min": 25.0,
+   "bw_max": 50.0,
+   "num_batches": 10
+  },
+  "seed_001_grid5x5_low.json": {
+   "seed": 1,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 2.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_001_grid5x5_mid.json": {
+   "seed": 1,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 4.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_001_grid5x5_xlow.json": {
+   "seed": 1,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 10
+  },
+  "seed_mininet_grid5x5_xlow_1b.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 1
+  },
+  "seed_mininet_grid5x5_xlow_3b.json": {
+   "seed": 0,
+   "num_hosts": 16,
+   "experiment_duration": 150,
+   "flow_duration": 15.0,
+   "lambda": 1.0,
+   "bw_min": 0.1,
+   "bw_max": 0.5,
+   "num_batches": 3
+  }
+ }
+}
