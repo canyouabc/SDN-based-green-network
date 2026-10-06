@@ -43,10 +43,19 @@ label.btn, button { font: inherit; padding: 5px 12px; border: 1px solid var(--li
 button:hover, label.btn:hover { border-color: var(--accent); }
 button:disabled { opacity: .4; cursor: default; }
 main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px; }
-@media (max-width: 860px) { main { grid-template-columns: 1fr; } }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
-/* 高度跟著視窗走（扣掉標題列、控制列、圖例），viewBox 會等比縮放讓整張拓撲塞進去 */
-#stage { width: 100%; height: calc(100vh - 210px); min-height: 280px; display: block; }
+/* 整頁剛好一個視窗高：標題列、檔案清單（有的話）照內容高度，main 吃掉剩下的，
+   拓撲圖再吃掉左欄扣掉控制列／圖例後的高度；viewBox 會等比縮放讓整張拓撲塞進去 */
+body { display: flex; flex-direction: column; height: 100vh; }
+main { flex: 1; min-height: 0; }
+main > section.card { display: flex; flex-direction: column; min-height: 0; }
+main > aside.card { overflow: auto; }
+#stage { width: 100%; flex: 1; min-height: 240px; display: block; }
+@media (max-width: 860px) {
+  body { height: auto; }
+  main { grid-template-columns: 1fr; }
+  #stage { flex: none; height: 70vh; }
+}
 #empty { padding: 60px 16px; text-align: center; color: var(--muted); }
 .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
 .controls input[type=range] { flex: 1 1 200px; min-width: 120px; }
@@ -68,6 +77,15 @@ td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
 #spark { width: 100%; height: 60px; display: block; }
 .drop { outline: 3px dashed var(--accent); outline-offset: -8px; }
 svg text { fill: var(--ink); font-size: 11px; pointer-events: none; }
+#browser { margin: 16px 16px 0; }
+.bhead { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
+.bhead input { flex: 1 1 220px; font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--ink); }
+#blist { max-height: 200px; overflow: auto; font-size: 13px; }
+#blist .dir { color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+#blist .dir:first-child { margin-top: 0; }
+#blist button { margin: 3px 4px 0 0; padding: 2px 10px; font-size: 13px; }
+#blist button.cur { background: var(--accent); border-color: var(--accent); color: #fff; }
 .seg { display: inline-flex; }
 .seg button { border-radius: 0; }
 .seg button:first-child { border-radius: 6px 0 0 6px; }
@@ -78,7 +96,8 @@ svg text { fill: var(--ink); font-size: 11px; pointer-events: none; }
 <body>
 <header>
   <h1>Snap Player</h1>
-  <label class="btn">選擇 snap 檔<input id="file" type="file" accept=".txt,.log,.jsonl" hidden></label>
+  <label class="btn">選擇 snap 檔<input id="file" type="file" accept=".txt,.log,.jsonl" multiple hidden></label>
+  <label class="btn" title="選一個資料夾（例如整個 log/），自動找出底下所有 *-snap.txt">選擇資料夾<input id="dir" type="file" webkitdirectory hidden></label>
   <span class="seg">
     <button id="mAll" class="on" title="每條 active flow 用不同顏色畫出路徑，共用同一條 link 時並排顯示">所有流量的連線</button>
     <button id="mOne" title="只標出這一幀事件的 flow">特定流量的連線</button>
@@ -86,9 +105,16 @@ svg text { fill: var(--ink); font-size: 11px; pointer-events: none; }
   <label><input id="showTrigger" type="checkbox"> 顯示處理前幀（trigger_*）</label>
   <span class="file" id="fname">尚未載入（也可以把檔案拖進視窗）</span>
 </header>
+<section id="browser" class="card" hidden>
+  <div class="bhead">
+    <b>snap 檔 <span id="bcount"></span></b>
+    <input id="bfilter" type="search" placeholder="篩選：資料夾或檔名（例如 N31 或 b3）">
+  </div>
+  <div id="blist"></div>
+</section>
 <main>
   <section class="card">
-    <div id="empty">選擇或拖入 <code>log/sim-*/b{N}-snap.txt</code></div>
+    <div id="empty">選擇或拖入 <code>b{N}-snap.txt</code>，或選／拖入整個資料夾（例如 <code>log/</code>），會列出底下所有 snap 檔</div>
     <svg id="stage" viewBox="0 0 600 600" hidden></svg>
     <div class="controls">
       <button id="bFirst" title="第一幀 (Home)">⏮</button>
@@ -337,9 +363,12 @@ function show(i) {
   // MILP 幀（combine_milp_snapshot.py --paths）是一段時間的獨立最優解，沒有單一事件
   const isSeg = f.event === 'milp_segment';
   $('t').textContent = isSeg ? `${f.t} – ${f.t_end} s` : `${Number(f.t).toFixed(1)} s`;
-  $('energy').textContent = `${f.energy_pct.toFixed(1)}%`;
+  $('energy').textContent = f.energy_pct == null ? '無解' : `${f.energy_pct.toFixed(1)}%`;
+  const milpTitle = f.milp_batch == null ? 'MILP' : f.status === 'OPTIMAL' ? 'MILP 最優解'
+    : f.status && f.status.startsWith('TIME_LIMIT') ? 'MILP 次佳解（求解時間到，未證明最優）'
+    : f.energy_pct == null ? `MILP 無解（${f.status}）` : `MILP（${f.status}）`;
   $('ev').innerHTML = isSeg
-    ? `<b>MILP 最優解</b>　${f.milp_batch == null ? '這段沒有 flow' : `第 ${f.milp_batch} 題`}`
+    ? `<b>${milpTitle}</b>　${f.milp_batch == null ? '這段沒有 flow' : `第 ${f.milp_batch} 題`}`
       + `<br><span class="muted">每段獨立求解，與上一段的路徑沒有延續關係</span>`
     : `<b>${EVENT_TEXT[f.event] || f.event}</b>　${f.src} → ${f.dst}`
       + (f.path ? `<br><span class="muted">路徑 [${f.path.join(', ')}]</span>` : '');
@@ -362,8 +391,14 @@ function show(i) {
 const sparkX = i => frames.length > 1 ? i / (frames.length - 1) * 300 : 0;
 function drawSpark() {
   const svg = $('spark');
-  const p = frames.map((f, i) => `${sparkX(i)},${58 - f.energy_pct / 100 * 56}`).join(' ');
-  svg.innerHTML = `<polyline points="${p}" fill="none" stroke="${css('--accent')}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`
+  // energy_pct 為 null（MILP 無解）的幀把折線斷開，不畫成 0%
+  const runs = [[]];
+  frames.forEach((f, i) => {
+    if (f.energy_pct == null) { if (runs[runs.length - 1].length) runs.push([]); }
+    else runs[runs.length - 1].push(`${sparkX(i)},${58 - f.energy_pct / 100 * 56}`);
+  });
+  svg.innerHTML = runs.filter(r => r.length).map(r =>
+    `<polyline points="${r.join(' ')}" fill="none" stroke="${css('--accent')}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('')
     + `<line id="spark-cur" y1="0" y2="60" stroke="${css('--muted')}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
 }
 
@@ -415,13 +450,87 @@ document.addEventListener('keydown', e => {
   if (act) { e.preventDefault(); act(); }
 });
 
-const readFile = file => file.text().then(t => load(t, file.name));
-$('file').onchange = e => e.target.files[0] && readFile(e.target.files[0]);
+// ── 多檔／資料夾：列出所有 snap 檔，點哪個才讀哪個 ─────────────
+let snapFiles = [], curFile = -1;   // [{path, file}]，path 含資料夾，用來分組顯示
+const isSnap = name => /-snap\.txt$/i.test(name);
+
+function setSnapFiles(list, wantPath) {
+  snapFiles = list.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+  curFile = -1;
+  $('browser').hidden = snapFiles.length <= 1;
+  if (!snapFiles.length) { $('fname').textContent = '沒有找到 *-snap.txt'; return; }
+  renderBrowser();
+  openSnap(Math.max(0, snapFiles.findIndex(f => f.path === wantPath)));
+}
+
+function renderBrowser() {
+  const q = $('bfilter').value.trim().toLowerCase();
+  const groups = new Map();
+  snapFiles.forEach((f, i) => {
+    if (q && !f.path.toLowerCase().includes(q)) return;
+    const cut = f.path.lastIndexOf('/');
+    const dir = cut < 0 ? '' : f.path.slice(0, cut);
+    if (!groups.has(dir)) groups.set(dir, []);
+    groups.get(dir).push([i, f.path.slice(cut + 1).replace(/-snap\.txt$/i, '')]);
+  });
+  const shown = [...groups.values()].reduce((n, g) => n + g.length, 0);
+  $('bcount').textContent = q ? `（${shown} / ${snapFiles.length}）` : `（${snapFiles.length}）`;
+  $('blist').innerHTML = [...groups].map(([dir, items]) =>
+    `<div class="dir">${dir || '（未分資料夾）'}</div>`
+    + items.map(([i, label]) => `<button data-i="${i}" class="${i === curFile ? 'cur' : ''}">${label}</button>`).join('')
+  ).join('') || '<div class="muted">（沒有符合的檔案）</div>';
+}
+
+function openSnap(i) {
+  curFile = i;
+  renderBrowser();
+  snapFiles[i].file.text().then(t => load(t, snapFiles[i].path))
+    .catch(() => { $('fname').textContent = `讀不到 ${snapFiles[i].path}`; });
+}
+
+// 嵌在 log_viewer.html 裡時：列表頁用 postMessage 傳來該實驗所有 snap 的 File，直接開到點的那一個
+window.addEventListener('message', e => {
+  if (e.data && e.data.type === 'snaps') setSnapFiles(e.data.files, e.data.want);
+});
+const EMBEDDED = window.parent !== window;
+if (EMBEDDED) window.parent.postMessage({ type: 'player-ready' }, '*');   // 握手：通知列表頁可以傳檔案了
+document.addEventListener('keydown', e => {   // 焦點在播放器裡時 Esc 也要能關掉外層的播放視窗
+  if (EMBEDDED && e.key === 'Escape') window.parent.postMessage({ type: 'close-player' }, '*');
+});
+
+$('blist').onclick = e => { const b = e.target.closest('button[data-i]'); if (b) openSnap(Number(b.dataset.i)); };
+$('bfilter').oninput = renderBrowser;
+const fromInput = files => [...files].map(f => ({ path: f.webkitRelativePath || f.name, file: f }));
+// 單選「選擇 snap 檔」不限檔名（舊的 sim-snap-*.txt 也能開）；選資料夾才只挑 *-snap.txt
+$('file').onchange = e => e.target.files.length && setSnapFiles(fromInput(e.target.files));
+$('dir').onchange = e => setSnapFiles(fromInput(e.target.files).filter(f => isSnap(f.path)));
+
+// 拖曳：可以拖單一檔案、多個檔案，或整個資料夾（遞迴找出 *-snap.txt）
+async function walkEntry(entry, out) {
+  if (entry.isFile) {
+    if (isSnap(entry.name)) out.push({ path: entry.fullPath.replace(/^\//, ''), file: await new Promise((ok, ng) => entry.file(ok, ng)) });
+    return;
+  }
+  const reader = entry.createReader();
+  for (;;) {   // readEntries 一次最多回傳一部分，要讀到空為止
+    const batch = await new Promise((ok, ng) => reader.readEntries(ok, ng));
+    if (!batch.length) break;
+    for (const child of batch) await walkEntry(child, out);
+  }
+}
 document.addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drop'); });
 document.addEventListener('dragleave', () => document.body.classList.remove('drop'));
-document.addEventListener('drop', e => {
+document.addEventListener('drop', async e => {
   e.preventDefault(); document.body.classList.remove('drop');
-  if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+  const entries = [...e.dataTransfer.items].map(it => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+  if (entries.some(en => en.isDirectory)) {
+    $('fname').textContent = '掃描資料夾中…';
+    const out = [];
+    for (const en of entries) await walkEntry(en, out);
+    setSnapFiles(out);
+  } else if (e.dataTransfer.files.length) {
+    setSnapFiles(fromInput(e.dataTransfer.files));
+  }
 });
 </script>
 </body>

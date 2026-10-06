@@ -89,6 +89,10 @@ def main():
     csv_path = f"{run_dir}/experiment.csv"
     parse_log(log_path, csv_path)
     matplotlib_DTM.analyze(csv_path, run_dir, make_plots=False)
+    from run_meta import write_run_meta
+    write_run_meta(run_dir, 'geant', name=os.path.splitext(os.path.basename(SEED_PATH))[0], series='geant',
+                   time=timestamp, topo=TOPO, data_dir=os.path.dirname(sim._TOPO_FILES[TOPO]['switch_energy']),
+                   seed_data=seed_data, seed_path=SEED_PATH, algorithm=ALGORITHM)
 
     if not KEEP_RAW_LOG:
         os.remove(log_path)

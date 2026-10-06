@@ -1,0 +1,87 @@
+{
+ "_說明": [
+  "系列對照表：index_logs.py 用它幫 log 資料夾補屬性（只補 meta.json 沒有的欄位，不會覆蓋）。",
+  "key = 系列代號（sweep combo 名稱的第一段；sim／mininet／geant／milp 類用 kind 名，milpsnap 用資料夾前綴）。",
+  "desc：一句話說明。attrs：整個系列共用的屬性（可含 topo，會自動推出 topo_family／topo_size／energy_ratio）。",
+  "name_regex：對 combo 名稱（資料夾名去掉 sweep- 前綴與時間戳）比對，具名群組直接變成屬性；flag_XXX 群組會寫進 flags.XXX。",
+  "status：'待確認' 是 Claude 依 docs／thesis_figures 線索打的草稿；確認後改 '已確認'，不確定的欄位直接刪掉即可。",
+  "沒有寫的系列、沒有寫的欄位都沒關係，只是不能用那個條件搜到。"
+ ],
+ "N31": {
+  "desc": "NSP（LINK_PRUNE='NSP_COUNT'）實驗，grid 5×5 能耗 3:1",
+  "attrs": {"topo": "grid_31", "algorithm": "sorted", "seed_rng": 0,
+            "flags": {"SORT_MODE": "SPF", "ENABLE_WEIGHT_MAP": false, "LINK_WEIGHT": false}},
+  "name_regex": "^N31_(?P<traffic_level>xxlow|xlow|low|mid|high)(?P<bw_variant>_bw25)?_(?P<variant>SPF|ESP|SHORT)(?P<nsp>_NSP)?_(?P<random_seed>\\d+)$",
+  "source": "thesis_figures/plot_nsp_31.py、plot_nsp_31_bw25.py 資料來源說明",
+  "status": "待確認"
+ },
+ "G55L": {
+  "desc": "link 版（LINK_WEIGHT=True）SGH／ESP ± NSP，grid 5×5 能耗 3:1，seed_00{s}",
+  "attrs": {"topo": "grid_31", "algorithm": "sorted",
+            "flags": {"SORT_MODE": "SPF", "ENABLE_WEIGHT_MAP": false, "LINK_WEIGHT": true}},
+  "name_regex": "^G55L_s(?P<seed_rng>\\d+)_(?P<traffic_level>xxlow|xlow|low|mid|high)_(?P<variant>SGH|ESP)(?P<nsp>_NSP)?(?:_rs(?P<random_seed>\\d+))?$",
+  "source": "thesis_figures/plot_link_nsp_31.py 資料來源說明",
+  "status": "待確認"
+ },
+ "L31": {
+  "desc": "LINK_WEIGHT 實驗（_link 後綴 = LINK_WEIGHT=True），grid 5×5 能耗 3:1",
+  "attrs": {"topo": "grid_31", "algorithm": "sorted", "seed_rng": 0},
+  "name_regex": "^L31_(?P<traffic_level>xxlow|xlow|low|mid|high)_(?P<variant>SPF|ESP)(?P<link>_link)?_(?P<random_seed>\\d+)$",
+  "source": "docs/link_weight_experiment_2026-09-29.md 末段、thesis_figures/plot_nsp_31.py",
+  "status": "待確認"
+ },
+ "LW": {
+  "desc": "LINK_WEIGHT 開關比較（811:1 與 3:1），seed_000_grid5x5_xlow",
+  "attrs": {"algorithm": "sorted", "traffic_level": "xlow", "seed_rng": 0},
+  "name_regex": "^LW_(?P<topo>grid|grid_31)_(?P<flag_LINK_WEIGHT>True|False)_(?P<random_seed>\\d+)$",
+  "source": "docs/link_weight_experiment_2026-09-29.md",
+  "status": "待確認"
+ },
+ "LWESP": {
+  "desc": "3:1 下 LINK_WEIGHT 開關 + ESP，與 Gurobi 比較",
+  "attrs": {"algorithm": "sorted", "traffic_level": "xlow", "seed_rng": 0,
+            "flags": {"PRESEED_ENDPOINTS": true}},
+  "name_regex": "^LWESP_(?P<topo>grid_31)_(?P<flag_LINK_WEIGHT>True|False)_(?P<random_seed>\\d+)$",
+  "source": "docs/link_weight_experiment_2026-09-29.md「3:1 下加入 ESP」段",
+  "status": "待確認"
+ },
+ "MNV": {
+  "desc": "Mininet 驗證對照用的 sim 結果（SPF／SPF+ESP）",
+  "attrs": {"algorithm": "sorted"},
+  "source": "memory dijkstra-systematic-review（MNV 結果 38.95%）、docs/mininet_validation_2026-09-29/",
+  "status": "待確認"
+ },
+ "MNV1B": {
+  "desc": "Mininet 驗證對照（1 batch 版），seed_mininet_grid5x5_xlow_1b",
+  "attrs": {"algorithm": "sorted", "traffic_level": "xlow"},
+  "source": "名稱推測＋docs/mininet_validation_2026-09-29/",
+  "status": "待確認"
+ },
+ "LPF":     {"desc": "TANET 時期（08-16～09-17）排序條件比較", "name_regex": "^(?P<flag_SORT_MODE>LPF)(?P<variant>_.+)?$", "source": "名稱＋sweep-summary", "status": "待確認"},
+ "SPF":     {"desc": "TANET 時期（08-16～09-17）排序條件比較", "name_regex": "^(?P<flag_SORT_MODE>SPF)(?P<variant>_.+)?$", "source": "名稱＋sweep-summary", "status": "待確認"},
+ "HDF":     {"desc": "TANET 時期（08-16～09-17）排序條件比較", "name_regex": "^(?P<flag_SORT_MODE>HDF)(?P<variant>_.+)?$", "source": "名稱＋sweep-summary", "status": "待確認"},
+ "SDF":     {"desc": "TANET 時期（08-16～09-17）排序條件比較", "name_regex": "^(?P<flag_SORT_MODE>SDF)(?P<variant>_.+)?$", "source": "名稱＋sweep-summary", "status": "待確認"},
+ "G44": {
+  "desc": "（無文件線索）名稱看起來是 grid 4×4、seed s、流量等級、SGH 變體",
+  "name_regex": "^G44_s(?P<seed_rng>\\d+)_(?P<traffic_level>xxlow|xlow|low|mid|high)_(?P<variant>SGH)(?P<suffix>_LINK|_NSP)?$",
+  "status": "待確認"
+ },
+ "G55": {
+  "desc": "（無文件線索）名稱看起來是 grid 5×5、seed s、流量等級、SGH 變體",
+  "name_regex": "^G55_s(?P<seed_rng>\\d+)_(?P<traffic_level>xxlow|xlow|low|mid|high)_(?P<variant>SGH)(?P<suffix>_LINK)?$",
+  "status": "待確認"
+ },
+ "BWS":   {"desc": "（無文件線索）名稱看起來是頻寬範圍掃描", "name_regex": "^BWS_(?P<traffic_level>xxlow|xlow|low|mid|high)_(?P<bw_range>[\\d.]+-[\\d.]+)_(?P<variant>SPF|ESP)$", "status": "待確認"},
+ "LV":    {"desc": "（無文件線索）", "name_regex": "^LV_(?P<traffic_level>xxlow|xlow|low|mid|high)_(?P<variant>SPF|ESP)$", "status": "待確認"},
+ "INT":   {"desc": "（無文件線索）", "name_regex": "^INT_(?P<traffic_level>xxlow|xlow|low|mid|high)_(?P<variant>SGH(\\+NSP)?)$", "status": "待確認"},
+ "DET":   {"desc": "（無文件線索）", "status": "待確認"},
+ "TIME":  {"desc": "（無文件線索）", "status": "待確認"},
+ "BENCH": {"desc": "（無文件線索）", "status": "待確認"},
+ "milpsnap31": {
+  "desc": "Gurobi 快照最優解（grid 5×5 能耗 3:1）",
+  "attrs": {"kind": "milp", "algorithm": "MILP", "topo": "grid_5x5_31"},
+  "name_regex": "^milpsnap31-grid5x5_(?P<traffic_level>xxlow|xlow|low|mid|high)$",
+  "source": "docs/link_weight_experiment_2026-09-29.md",
+  "status": "待確認"
+ }
+}

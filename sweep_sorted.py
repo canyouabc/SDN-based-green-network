@@ -9,8 +9,10 @@
 # ─────────────────────────────────────────────────────────────────
 
 import os
+import re
 import sys
 import json
+import random
 import argparse
 from datetime import datetime
 
@@ -40,6 +42,7 @@ import matplotlib.pyplot as plt
 import sim
 from parse_log import parse_log
 import matplotlib_DTM
+from run_meta import write_run_meta
 
 
 class _AppendTee:
@@ -68,6 +71,13 @@ SEED_PATH = 'seed_000_grid3x3_high.json'
 TOPO      = 'grid_3x3'   # 'grid'(5x5) | 'cap' | 'grid_2x2' | 'grid_3x3' | 'grid_4x4' | 'grid_6x6' | 'grid_7x7'
 ALGORITHM = 'sorted'
 MAKE_PLOTS = False   # 每組 combo 是否也產出 batch_N.png（組數多時建議關閉）
+# 這批實驗的分組與說明，會記進每組 combo 的 meta.json（log_viewer.html 可依 series 分組、搜尋 note）。
+# combo 裡也可以各自寫 'series'／'note'／'random_seed' 覆蓋。名稱只是給人看的標籤，
+# 拓撲、流量、旗標等條件都會自動記進 meta，不需要塞進名稱。
+SERIES = None        # 例如 'NSP 3:1 比較'；None：退回用 combo 名稱第一段（舊命名習慣）
+NOTE   = None        # 例如 '驗證 NSP 在 3:1 下能否追平 Gurobi'
+KEEP_RAW_LOG = False # False：parse_log 轉完 csv 後刪掉 experiment.log，只留 csv（同 run_geant_seed.py）
+                     # 原始 log 一組 combo 可達數百 MB，2026-10-06 清掉的舊 log 合計 19 GB
 SAVE_SNAP  = False   # 每組 combo 是否也輸出 b{batch_id}-snap.txt（snap_player.html 讀這個）
                      # 每個事件寫兩筆完整狀態 JSON，5x5 一個 batch 約 1MB、大拓撲可到數十 MB，組數多時建議關閉
 
@@ -144,10 +154,18 @@ def run_one_combo(combo, seed_data):
         setattr(rm, key, val)
 
     sim.TOPO = TOPO
+    if combo.get('random_seed') is not None:   # 並列候選的 random.choice 用這個種子，可重現
+        random.seed(combo['random_seed'])
 
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    run_dir = f"log/sweep-{combo['name']}-{timestamp}"
-    os.makedirs(run_dir, exist_ok=True)
+    # 名稱只是標籤，可能含空白或 Windows 檔名不允許的字元；資料夾名稱換成底線
+    safe_name = re.sub(r'[\\/:*?"<>|\s]+', '_', combo['name']).strip('_') or 'combo'
+    run_dir = f"log/sweep-{safe_name}-{timestamp}"
+    n = 2
+    while os.path.exists(run_dir):   # 同名 combo 在同一秒內跑完時，不要寫進同一個資料夾互相覆蓋
+        run_dir = f"log/sweep-{safe_name}-{timestamp}_{n}"
+        n += 1
+    os.makedirs(run_dir)
     log_path = f"{run_dir}/experiment.log"
 
     print(f"\n{'='*60}")
@@ -196,6 +214,19 @@ def run_one_combo(combo, seed_data):
     csv_path = f"{run_dir}/experiment.csv"
     parse_log(log_path, csv_path)
     base = matplotlib_DTM.analyze(csv_path, run_dir, make_plots=MAKE_PLOTS)
+    if not KEEP_RAW_LOG:
+        os.remove(log_path)
+    write_run_meta(
+        run_dir, 'sweep', name=combo['name'], series=combo.get('series') or SERIES, time=timestamp, topo=TOPO,
+        data_dir=os.path.dirname(sim._TOPO_FILES[TOPO]['switch_energy']),
+        seed_data=seed_data, seed_path=SEED_PATH, algorithm=ALGORITHM,
+        # 讀路由模組執行當下的所有大寫常數，不只 BASELINE：呼叫端腳本若直接改了別的旗標也記得到
+        flags={k: v for k, v in vars(rm).items()
+               if k.isupper() and isinstance(v, (str, int, float, bool, type(None)))},
+        extra={'link_update': sim.LINK_LOAD_UPDATE if sim.LINK_LOAD_UPDATE == 'realtime'
+               else f'periodic/{sim.LINK_LOAD_INTERVAL}s',
+               'note': combo.get('note') or NOTE, 'random_seed': combo.get('random_seed')},
+    )
 
     base = base.reset_index()  # index (batch id / 'AVERAGE') 變成一般欄位 'batch'
     base.insert(0, 'name', combo.get('name', str(resolved)))

@@ -222,6 +222,31 @@
       `CASCADE_ABORT`／`CASCADE_WARN` 都已移除（見 `docs/routing_DTM_self_optimizations.md`
       第 12／13 條）。殘留的只是「每次 admit／timeout 觸發一輪 O(F) 全掃」的成本，非失控類 bug。
 
+- [ ] **sim seed 不保存檔案，只保存參數（2026-10-06 起）**：根目錄的 `seed_*.json` 已全部移除，
+      參數記在 `seeds/manifest.json`，要用時 `python regen_seeds.py <檔名>`（或 `--list`／`--all`）
+      重產到根目錄，`SEED_PATH` 等既有寫法不用改。`gen_seed.py` 用 `random.Random(seed)`，
+      同參數必產生相同流量（已驗證清單內 97 個內容與原檔相同）——**不要改 `gen_seed.py` 的抽樣邏輯**，
+      改了舊 seed 就重產不出來。用 `gen_seed.py` 產生新 seed 時，記得把參數補進 manifest。
+      `seed_milp_*`（seed=42 靜態隨機，與 sim 無關）只留 `milp_transfer/` 那份；
+      `seed_milpsnap_*` 可由 `gen_milp_snapshot.py` 從 sim seed 重新轉錄。
+
+- [ ] **實驗索引與檢視器（2026-10-06 起）**：每次實驗跑完，runner 會在自己的 log 資料夾寫
+      `meta.json`（`run_meta.write_run_meta`：拓撲／能耗比／seed 參數／路由模組當下所有大寫常數／
+      平均節能率…，取不到的欄位就不寫），並自動重建 `log/index.json`（`index_logs.py`，約 1 秒）。
+      已接上：`sweep_sorted.py`、`sim.py` CLI、`run_geant_seed.py`、`combine_milp_snapshot.py`、
+      `watchdog_new.py`（Mininet；`run_meta.py`／`index_logs.py` 因此要維持 Python 3.8 相容）。
+      **新增 runner 時記得也呼叫 `write_run_meta`**，否則新實驗只會有從資料夾名稱推測的屬性。
+      檢視：雙擊 `log_viewer.html` → 選 `log/` 資料夾（Chrome／Edge 會記住）→ 依任意屬性分組／篩選，
+      點 snap 開內嵌的 `snap_player.html`。**不要改成本機 HTTP 伺服器**：這台電腦的 127.0.0.1 連線
+      會隨機切斷 >約 16KB 的傳輸（連 raw socket 都會，原因未查明），2026-10-06 測過不可行。
+      **combo 名稱只是給人看的標籤，不要再把條件塞進名稱**：拓撲／流量／旗標都會自動記進 meta；
+      程式設定以外的資訊用明確欄位——`sweep_sorted.py` 頂部 `SERIES`／`NOTE`，或 combo 裡寫
+      `'series'`／`'note'`／`'random_seed'`（`run_one_combo` 會自己 `random.seed()`，同種子結果逐列相同，
+      已驗證）；`sim.py` CLI 對應 `--series`／`--note`／`--random-seed`。
+      `log_series.json` 的 name_regex 只是替 2026-10-06 以前沒有 meta 的舊實驗從名稱拆屬性（草稿，標「待確認」），
+      之後的實驗不依賴它。`sweep_sorted.py` 預設 `KEEP_RAW_LOG=False`（轉完 csv 刪原始 log）；
+      同名 combo 同一秒跑完時資料夾會自動加 `_2`，不會互相覆蓋。
+
 - [ ] **死 import 殘留**：`routing_DTM_2020.py:83` 還有一個未使用的
       `from .link_status import Link_Status`（該模組只用 `app.link_status`）；
       `routing_2014.py:10` 有未使用的 `from ryu.lib import hub`（只在 Mininet 用，暫不影響）。
@@ -284,6 +309,8 @@ Dijkstra/
 ├── matplotlib_DTM.py       # analyze() 函式：CSV → 圖表 + energy_saving_summary.csv（含 AVERAGE 那一列）
 ├── sim.py                  # 純路由模擬器（不依賴 Ryu/Mininet）← 目前主要模擬方式
 ├── gen_seed.py             # 產生 sim.py 用的種子檔（seed_*.json）
+├── regen_seeds.py          # 依 seeds/manifest.json 重產 sim seed 到根目錄（seed 檔本身不保存）
+├── seeds/                  # manifest.json（sim seed 產生參數）＋無法重產的 _norelaunch 過濾版
 ├── animate_sim.py          # 從 sim.py 的 snap 檔產出 HTML 動畫
 ├── sweep_sorted.py         # 批次比較 routing_DTM_sorted.py 多組設定 → sweep_comparison.csv
 ├── experiment.log          # 實驗記錄

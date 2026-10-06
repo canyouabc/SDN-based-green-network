@@ -80,12 +80,13 @@ def write_snaps(snap_json, paths_jsonl, out_dir):
                 r = json.loads(line)
                 paths[r['batch']] = r
     need = {s['milp_batch_id'] for s in snap['segments'] if s['milp_batch_id']}
-    missing = sorted(b for b in need if b not in paths or paths[b]['flows'] is None)
+    missing = sorted(need - set(paths))
     if missing:
-        raise ValueError(f"路徑檔缺 {len(missing)} 個 batch（或該 batch 無解），例如 {missing[:5]}")
+        raise ValueError(f"路徑檔缺 {len(missing)} 個 batch，例如 {missing[:5]}")
 
     classify = Link_Status(None).get_link_status
-    link_keys = next(iter(paths.values()))['links'].keys()
+    # 無解的題目 links 是 None，從有解的題目取 link 清單
+    link_keys = next(r['links'] for r in paths.values() if r['links'] is not None).keys()
     os.makedirs(out_dir, exist_ok=True)
 
     by_batch = {}
@@ -95,7 +96,9 @@ def write_snaps(snap_json, paths_jsonl, out_dir):
         with open(os.path.join(out_dir, f'b{ob}-snap.txt'), 'w', encoding='utf-8') as out:
             for s in sorted(by_batch[ob], key=lambda s: s['t_start']):
                 r = paths.get(s['milp_batch_id'])
-                usage = r['links'] if r else dict.fromkeys(link_keys, 0.0)
+                # 三種情況：這段沒有 flow（r=None）／無解（flows=None）／有解（OPTIMAL 或 TIME_LIMIT 次佳解）
+                solved = r is not None and r['flows'] is not None
+                usage = r['links'] if solved else dict.fromkeys(link_keys, 0.0)
                 frame = {
                     'event':      'milp_segment',
                     'src':        None,
@@ -104,11 +107,13 @@ def write_snaps(snap_json, paths_jsonl, out_dir):
                     't':          s['t_start'],
                     't_end':      s['t_end'],
                     'milp_batch': s['milp_batch_id'],
-                    'active':     [[fl['src'], fl['dst'], fl['path']] for fl in r['flows']] if r else [],
-                    'bw':         [fl['bw_mbps'] for fl in r['flows']] if r else [],
+                    'status':     r['status'] if r else None,   # 無解時是 'no feasible solution found'
+                    'active':     [[fl['src'], fl['dst'], fl['path']] for fl in r['flows']] if solved else [],
+                    'bw':         [fl['bw_mbps'] for fl in r['flows']] if solved else [],
                     'ns':         [],
                     'links':      {k: {'s': classify(p), 'p': round(p, 1)} for k, p in usage.items()},
-                    'energy_pct': round(r['energy_saving_percent'], 1) if r else 100.0,
+                    # 沒有 flow → 100%；無解 → None（播放器顯示「無解」，走勢圖在這段斷開）
+                    'energy_pct': (round(r['energy_saving_percent'], 1) if solved else None) if r else 100.0,
                 }
                 out.write(f"[SIM_SNAPSHOT] {json.dumps(frame, ensure_ascii=False)}\n")
     return sorted(by_batch)
@@ -129,5 +134,19 @@ if __name__ == '__main__':
     if args.paths:
         batches = write_snaps(snap_json, args.paths, out_dir)
         print(f"已產出 {len(batches)} 個 snap 檔到 {out_dir}")
+
+    from run_meta import write_run_meta
+    with open(milp_csv, encoding='utf-8') as f:
+        milp_topo = next(csv.DictReader(f), {}).get('topo')   # 例如 grid_5x5_31
+    snap = json.load(open(snap_json, encoding='utf-8'))
+    write_run_meta(
+        out_dir, 'milp', name=os.path.splitext(os.path.basename(snap_json))[0], series='milp',
+        topo=milp_topo, data_dir=os.path.join(os.path.dirname(snap_json), 'data', milp_topo) if milp_topo else None,
+        seed_data=snap, seed_path=snap_json, algorithm='MILP',
+        # 快照 seed 的 batches 是 MILP 題目，不是原始 batch：num_batches 改記原始 batch 數，題數另記
+        extra={'num_batches': len({s['orig_batch'] for s in snap['segments']}),
+               'milp_problems': len(snap['batches']), 'num_flows': None,
+               'milp_result_csv': os.path.basename(milp_csv), 'milp_status': status},
+    )
     print(f"MILP 狀態統計：{status}")
     print(base[['mean_after_100']].to_string())

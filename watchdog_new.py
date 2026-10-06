@@ -247,6 +247,16 @@ if __name__ == "__main__":
     os.makedirs(run_dir, exist_ok=True)
     experiment_log = f"{run_dir}/experiment.log"
 
+    # 索引用 meta.json：實驗開始時寫（Mininet 這邊不產生 summary，所以沒有結果摘要欄位）。
+    # 拓撲資料取扁平的 data/（DTM.py 實際讀的那份），演算法旗標從路由模組原始碼讀。
+    from run_meta import write_run_meta, read_module_flags
+    _algo = get_routing_algorithm()
+    write_run_meta(run_dir, 'mininet', name=f"real-{run_timestamp}", series='mininet',
+                   time=run_timestamp, topo=args.topo, data_dir='data', seed_data=seed_data,
+                   seed_path=args.seed, algorithm=_algo,
+                   flags=read_module_flags(f"modules/routing_DTM_{_algo}.py") if _algo else None,
+                   extra={'oracle': ORACLE})
+
     for batch in batches_plan:
         batch_id = batch["batch_id"]
         print(f"\n=== BATCH {batch_id} START ===")

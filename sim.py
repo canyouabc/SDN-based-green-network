@@ -943,7 +943,15 @@ if __name__ == '__main__':
                              '（預設依檔案頂部 LINK_LOAD_UPDATE / LINK_LOAD_INTERVAL）')
     parser.add_argument('--trace', action='store_true', default=False,
                         help='開啟逐步追蹤模式（每條 flow 產生 4 幀快照）')
+    parser.add_argument('--series', type=str, default=None,
+                        help='這次實驗屬於哪一組（記進 meta.json，log_viewer.html 可依此分組）')
+    parser.add_argument('--note', type=str, default=None, help='這次實驗的說明（記進 meta.json）')
+    parser.add_argument('--random-seed', type=int, default=None,
+                        help='固定並列候選 random.choice 的種子，可重現（記進 meta.json）')
     args = parser.parse_args()
+    if args.random_seed is not None:
+        import random
+        random.seed(args.random_seed)
 
     # 解析 --link-update
     _ll_update   = LINK_LOAD_UPDATE
@@ -1080,4 +1088,15 @@ if __name__ == '__main__':
                   stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
         print(f"[Sim] 動畫產出中（背景）→ {_anim_path}")
 
+    from run_meta import write_run_meta
+    _routing_mod = sys.modules[type(sim.routing).__module__]   # 實際使用的路由模組，記它當下的大寫常數
+    write_run_meta(
+        _run_dir, 'sim', name=f'{TOPO}-{_seed_stem}-{args.algorithm}', series=args.series or 'sim', time=_timestamp,
+        topo=TOPO, data_dir=os.path.dirname(_TOPO_FILES[TOPO]['switch_energy']),
+        seed_data=seed_data if args.seed else None, seed_path=args.seed, algorithm=args.algorithm,
+        flags={k: v for k, v in vars(_routing_mod).items()
+               if k.isupper() and isinstance(v, (str, int, float, bool, type(None)))},
+        extra={'link_update': _lu_label, 'only_batch': args.batch,
+               'note': args.note, 'random_seed': args.random_seed},
+    )
     _tee.close()

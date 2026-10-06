@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiment Log Viewer</title>
+<!--
+  log_viewer.html
+  ---------------
+  實驗列表：讀 log/index.json（index_logs.py 產生），依任意屬性分組／勾選篩選／排序／搜尋；
+  點實驗裡的 snap，會在頁面上方開出 snap_player.html 播放。
+  雙擊本檔開啟：列表由 <script src="log/index.js"> 自動載入，不用選資料夾；
+  只有播放 snap 時才需要資料夾權限（第一次選 log/，之後沿用記住的資料夾按一次允許）。
+  完全不經過網路（這台電腦的本機連線會被切斷大檔，2026-10-06 測過本機伺服器方案不可行）。
+  index.json／index.js 由各 runner 跑完時自動重建（run_meta.write_run_meta），手動重建：python index_logs.py
+  屬性都是選填：某筆實驗沒有某個欄位，只是不會出現在那個條件的勾選結果裡。
+-->
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #6b7385; --line: #e2e5eb;
+  --accent: #2f6fde; --warn-bg: #fff4d6; --warn-ink: #7a5600; --err-bg: #fde4e1; --err-ink: #8a2418;
+  --good: #2e9d5b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171d; --panel: #1c2028; --ink: #e6e9ef; --muted: #8e96a8; --line: #2c323d;
+    --accent: #6b9cff; --warn-bg: #3a3014; --warn-ink: #f2d27a; --err-bg: #3d1d1a; --err-ink: #ffb3a8; --good: #5fcf8d;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171d; --panel: #1c2028; --ink: #e6e9ef; --muted: #8e96a8; --line: #2c323d;
+  --accent: #6b9cff; --warn-bg: #3a3014; --warn-ink: #f2d27a; --err-bg: #3d1d1a; --err-ink: #ffb3a8; --good: #5fcf8d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, "Segoe UI", "Microsoft JhengHei", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 16px; margin: 0 8px 0 0; }
+input[type=search], select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--ink); }
+input[type=search] { flex: 1 1 220px; min-width: 0; }
+button, label.btn { font: inherit; padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--ink); cursor: pointer; }
+button:hover, label.btn:hover { border-color: var(--accent); }
+.muted { color: var(--muted); }
+.banner { margin: 12px 16px 0; padding: 10px 14px; border-radius: 8px; }
+.banner.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.banner.err { background: var(--err-bg); color: var(--err-ink); }
+.banner code { font-weight: 600; }
+main { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; padding: 16px; }
+@media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+#facets { max-height: calc(100vh - 110px); overflow: auto; position: sticky; top: 70px; align-self: start; }
+@media (max-width: 860px) { #facets { position: static; max-height: none; } }
+#facets details { border-bottom: 1px solid var(--line); padding: 6px 0; }
+#facets summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+#facets summary .n { color: var(--accent); font-weight: 400; }
+#facets label { display: flex; gap: 6px; align-items: baseline; font-size: 13px; padding: 1px 0 1px 4px; cursor: pointer; }
+#facets label .c { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+#facets label.none { color: var(--muted); font-style: italic; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+.group { margin-bottom: 10px; }
+.group > summary { cursor: pointer; padding: 6px 4px; font-weight: 600; }
+.group > summary .meta { font-weight: 400; color: var(--muted); margin-left: 8px; }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; cursor: pointer; user-select: none; }
+th.sorted { color: var(--accent); }
+td.num { text-align: right; }
+tr.run { cursor: pointer; }
+tr.run:hover td { background: var(--bg); }
+tr.detail td { white-space: normal; background: var(--bg); }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; font-size: 12px; }
+.kv .k { color: var(--muted); }
+.snaps a, .snaps span { display: inline-block; margin: 4px 6px 0 0; padding: 2px 10px; border-radius: 6px;
+  border: 1px solid var(--accent); color: var(--accent); text-decoration: none; font-size: 12px; }
+.snaps span { border-color: var(--line); color: var(--muted); }
+.note { font-size: 12px; white-space: normal; max-width: 340px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.snaps button { margin: 4px 6px 0 0; padding: 2px 10px; font-size: 12px; border-color: var(--accent); color: var(--accent); }
+.banner button { margin: 6px 8px 0 0; }
+#source { font-size: 13px; }
+#player { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .45); display: flex; padding: 12px; }
+#player[hidden] { display: none; }
+#player .box { flex: 1; display: flex; flex-direction: column; background: var(--panel); border-radius: 10px; overflow: hidden; }
+#player .bar { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+#player .bar b { flex: 1; font-size: 13px; overflow-wrap: anywhere; }
+#player iframe { flex: 1; border: 0; width: 100%; }
+</style>
+</head>
+<body>
+<header>
+  <h1>實驗檢視器</h1>
+  <input id="q" type="search" placeholder="搜尋名稱、說明、路徑、系列說明…">
+  <label class="muted">分組
+    <select id="groupBy"></select>
+  </label>
+  <label class="muted">排序
+    <select id="sortBy">
+      <option value="time:desc">時間（新→舊）</option>
+      <option value="time:asc">時間（舊→新）</option>
+      <option value="avg_energy_saving:desc">節能率（高→低）</option>
+      <option value="avg_energy_saving:asc">節能率（低→高）</option>
+      <option value="name:asc">名稱</option>
+    </select>
+  </label>
+  <button id="clear">清除篩選</button>
+  <button id="reload" hidden title="重新讀取 index.json（實驗跑完會自動重建索引）">重新讀取</button>
+  <button id="pickDir">選擇資料夾</button>
+  <input id="pickFallback" type="file" webkitdirectory hidden>
+  <span id="source" class="muted"></span>
+</header>
+<div id="player" hidden>
+  <div class="box">
+    <div class="bar"><b id="playerTitle"></b><button id="playerClose">關閉（Esc）</button></div>
+    <iframe id="playerFrame" title="snap 播放器"></iframe>
+  </div>
+</div>
+<div id="banner"></div>
+<main>
+  <aside class="card" id="facets"><span class="muted">載入中…</span></aside>
+  <section class="card">
+    <div class="toolbar"><span id="count" class="muted"></span></div>
+    <div id="list"></div>
+  </section>
+</main>
+<!-- index_logs.py 產生的索引（window.LOG_INDEX）；找不到時頁面會改成請使用者選資料夾 -->
+<script src="log/index.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+
+// 顯示名稱（沒列到的屬性直接用原本的 key）
+const LABEL = {
+  kind: '類型', series: '系列', date: '日期', topo: '拓撲', topo_family: '拓撲種類', topo_size: '拓撲大小',
+  topo_variant: '拓撲變體', energy_ratio: '能耗比 (switch:link)', traffic_level: '流量等級', seed_file: 'seed 檔',
+  seed_rng: 'seed 亂數種子', source_seed: '來源 seed', lambda: 'λ（到達率）', bw_min: '頻寬下限', bw_max: '頻寬上限',
+  bw_range: '頻寬範圍', bw_variant: '頻寬變體', flow_duration: 'flow 存活秒數', num_hosts: 'host 數', algorithm: '演算法',
+  variant: '變體', nsp: 'NSP', link: 'link 版', suffix: '後綴', random_seed: 'random seed', link_update: 'link 更新',
+  has_snap: '有 snap 檔', inferred: '舊資料（推測屬性）', n_switches: 'switch 數', n_links: 'link 數', oracle: 'oracle',
+  only_batch: '只跑 batch', note: '說明', num_batches: 'batch 數', milp_problems: 'MILP 題數',
+};
+const FACET_ORDER = ['kind', 'series', 'date', 'topo_family', 'topo_size', 'topo', 'energy_ratio', 'traffic_level',
+  'algorithm', 'variant', 'nsp', 'seed_rng', 'random_seed', 'seed_file', 'has_snap'];
+const OPEN_FACETS = new Set(['kind', 'series', 'topo_size', 'energy_ratio', 'traffic_level']);
+// 不適合當勾選條件的欄位（幾乎每筆都不同）
+const NO_FACET = new Set(['name', 'note', 'time', 'path', 'snaps', 'avg_energy_saving', 'num_flows', 'series_desc',
+  'milp_status', 'milp_result_csv', 'switch_energy_w', 'link_energy_w', 'batches_done']);
+const MAX_FACET_VALUES = 60;
+const NONE = '(未記錄)';
+const label = k => k.startsWith('flag.') ? `旗標 ${k.slice(5)}` : (LABEL[k] || k);
+const fmt = v => v === true ? '✓' : v === false ? '✗' : v === null ? 'None' : String(v);
+
+let runs = [], attrs = [], facetKeys = [], state = { q: '', groupBy: 'series', sortBy: 'time:desc', sel: {} };
+
+// ── 載入：選資料夾讀檔，完全不經過網路 ───────────────
+// source.getFile('相對於 log/ 的路徑') → File。兩種來源：
+//   1. Chrome／Edge 的資料夾存取（showDirectoryPicker）：資料夾 handle 存進 IndexedDB，
+//      下次開頁按一下「繼續使用上次的資料夾」再允許即可，不用重選
+//   2. 其他瀏覽器：<input webkitdirectory>，每次開頁都要重選
+let source = null;
+const HAS_FS = 'showDirectoryPicker' in window;
+function banner(kind, html) { $('banner').innerHTML = html ? `<div class="banner ${kind}">${html}</div>` : ''; }
+
+function idb(mode, fn) {   // 只用來記住資料夾 handle；失敗（例如私密視窗）就當作沒記住
+  return new Promise((ok, ng) => {
+    const req = indexedDB.open('log_viewer', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onerror = () => ng(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction('kv', mode), q = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => ok(q.result); tx.onerror = () => ng(tx.error);
+    };
+  });
+}
+
+// 選到的可能是 log/ 本身，也可能是專案資料夾（底下有 log/）
+async function logRootOf(dir) {
+  try { await dir.getFileHandle('index.json'); return dir; } catch (e) {}
+  try { const d = await dir.getDirectoryHandle('log'); await d.getFileHandle('index.json'); return d; } catch (e) {}
+  return null;
+}
+function handleSource(dir, label) {
+  return { label, async getFile(rel) {
+    const parts = rel.split('/'); let d = dir;
+    for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p);
+    return (await d.getFileHandle(parts[parts.length - 1])).getFile();
+  } };
+}
+function listSource(files) {
+  const all = [...files], idx = all.filter(f => /(^|\/)index\.json$/.test(f.webkitRelativePath))
+    .sort((a, b) => a.webkitRelativePath.split('/').length - b.webkitRelativePath.split('/').length)[0];
+  if (!idx) return null;
+  const prefix = idx.webkitRelativePath.slice(0, -'index.json'.length);
+  const map = new Map(all.map(f => [f.webkitRelativePath, f]));
+  return { label: prefix.replace(/\/$/, ''), async getFile(rel) {
+    const f = map.get(prefix + rel); if (!f) throw new Error('找不到 ' + rel); return f;
+  } };
+}
+
+// 列表優先用 <script src="log/index.js"> 自動載入（window.LOG_INDEX），雙擊開頁就有，不需要資料夾權限。
+// 資料夾權限只有播放 snap 時才需要（ensureSource）；沒有 index.js 時才退回「選資料夾讀 index.json」。
+const AUTO_INDEX = !!window.LOG_INDEX;
+let fallbackLoadsIndex = false;
+
+async function useSource(src, loadIndex) {
+  source = src;
+  $('source').textContent = AUTO_INDEX ? `資料夾：${source.label}（可直接播放 snap）` : `資料夾：${source.label}`;
+  if (!loadIndex) return true;
+  try {
+    setData(JSON.parse(await (await source.getFile('index.json')).text()));
+    banner('', '');
+    $('reload').hidden = false;
+    return true;
+  } catch (e) {
+    banner('err', '讀不到 <code>index.json</code>。請選 <code>log</code> 資料夾（或專案資料夾），'
+      + '若是第一次使用請先執行 <code>python index_logs.py</code>。');
+    return false;
+  }
+}
+
+async function pickDir(loadIndex = !AUTO_INDEX) {
+  if (!HAS_FS) { fallbackLoadsIndex = loadIndex; $('pickFallback').click(); return null; }
+  let dir;
+  try { dir = await window.showDirectoryPicker({ id: 'log_viewer', mode: 'read' }); } catch (e) { return null; }   // 使用者取消
+  const root = await logRootOf(dir);
+  if (!root) { banner('err', `「${esc(dir.name)}」裡找不到 index.json，請選 <code>log</code> 資料夾或專案資料夾。`); return null; }
+  try { await idb('readwrite', s => s.put(root, 'dir')); } catch (e) {}
+  await useSource(handleSource(root, root.name), loadIndex);
+  return source;
+}
+$('pickDir').onclick = () => pickDir();
+$('pickFallback').onchange = e => {
+  const src = listSource(e.target.files);
+  src ? useSource(src, fallbackLoadsIndex) : banner('err', '這個資料夾裡找不到 index.json，請選 <code>log</code> 資料夾。');
+};
+$('reload').onclick = () => AUTO_INDEX ? location.reload() : source && useSource(source, true);
+
+async function savedDir() {
+  if (!HAS_FS) return null;
+  try { return await idb('readonly', s => s.get('dir')); } catch (e) { return null; }
+}
+
+// 播放 snap 前取得資料夾：已授權就直接用；有記住的資料夾就請使用者按一次允許；都沒有才開選擇視窗
+async function ensureSource() {
+  if (source) return source;
+  const saved = await savedDir();
+  if (saved) {
+    let perm = await saved.queryPermission({ mode: 'read' });
+    if (perm !== 'granted') perm = await saved.requestPermission({ mode: 'read' });
+    if (perm === 'granted') { await useSource(handleSource(saved, saved.name), false); return source; }
+  }
+  return pickDir(false);
+}
+
+async function init() {
+  readHash();
+  if (AUTO_INDEX) {
+    setData(window.LOG_INDEX);
+    $('reload').hidden = false;
+    $('source').textContent = '播放 snap 時才會詢問資料夾';
+    const saved = await savedDir();   // 之前已授權（例如選了「每次造訪都允許」）就直接接上，播放不用再問
+    if (saved && await saved.queryPermission({ mode: 'read' }) === 'granted') useSource(handleSource(saved, saved.name), false);
+    return;
+  }
+  // 沒有 log/index.js（例如索引是舊版產生的）：退回選資料夾讀 index.json
+  $('facets').innerHTML = '<span class="muted">尚未載入</span>';
+  const saved = await savedDir();
+  if (saved && await saved.queryPermission({ mode: 'read' }) === 'granted') { useSource(handleSource(saved, saved.name), true); return; }
+  if (saved) {
+    banner('warn', `上次使用的資料夾：<code>${esc(saved.name)}</code>`
+      + '<br><button id="resume">繼續使用上次的資料夾</button><button id="other">選擇其他資料夾</button>');
+    $('resume').onclick = async () => {
+      if (await saved.requestPermission({ mode: 'read' }) === 'granted') useSource(handleSource(saved, saved.name), true);
+    };
+    $('other').onclick = () => pickDir(true);
+    return;
+  }
+  banner('warn', '找不到 <code>log/index.js</code>（執行一次 <code>python index_logs.py</code> 就會產生，之後開頁不用選資料夾）。'
+    + '<br>或按右上角「選擇資料夾」，選 <code>log</code> 資料夾（或專案資料夾）。');
+}
+
+function setData(data) {
+  runs = data.runs.map((r, i) => ({ ...r, _i: i, _a: flatten(r) }));
+  const keys = new Set(runs.flatMap(r => Object.keys(r._a)));
+  attrs = [...keys];
+  facetKeys = attrs.filter(k => !NO_FACET.has(k) && distinct(k).size <= MAX_FACET_VALUES)
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  const gb = $('groupBy');
+  gb.innerHTML = '<option value="">（不分組）</option>' + facetKeys.map(k => `<option value="${k}">${label(k)}</option>`).join('');
+  if (!facetKeys.includes(state.groupBy) && state.groupBy) state.groupBy = 'series';
+  gb.value = state.groupBy; $('sortBy').value = state.sortBy; $('q').value = state.q;
+  $('count').dataset.gen = data.generated || '';
+  render();
+}
+
+// 攤平成「屬性 → 純量值」：flags 變成 flag.XXX，time 另外產生 date
+function flatten(r) {
+  const a = {};
+  for (const [k, v] of Object.entries(r)) {
+    if (k.startsWith('_') || k === 'flags' || k === 'snaps' || k === 'milp_status') continue;
+    if (v !== null && typeof v === 'object') continue;
+    a[k] = v;
+  }
+  for (const [k, v] of Object.entries(r.flags || {})) a['flag.' + k] = v;
+  if (r.time) a.date = r.time.slice(0, 10);
+  return a;
+}
+const rank = k => { const i = FACET_ORDER.indexOf(k); return i < 0 ? (k.startsWith('flag.') ? 200 : 100) : i; };
+function distinct(k) { const s = new Set(); runs.forEach(r => s.add(k in r._a ? fmt(r._a[k]) : NONE)); return s; }
+
+// ── 篩選／分組／排序 ─────────────────────────────────
+function matches(r, skipKey) {
+  const q = state.q.trim().toLowerCase();
+  if (q && ![r.name, r.path, r.series_desc, r.note].some(s => s && String(s).toLowerCase().includes(q))) return false;
+  for (const [k, vals] of Object.entries(state.sel)) {
+    if (k === skipKey || !vals.length) continue;
+    const v = k in r._a ? fmt(r._a[k]) : NONE;
+    if (!vals.includes(v)) return false;
+  }
+  return true;
+}
+
+function sortRuns(list) {
+  const [key, dir] = state.sortBy.split(':'), s = dir === 'desc' ? -1 : 1;
+  return list.sort((a, b) => {
+    const x = a[key], y = b[key];
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;       // 沒有值的排最後
+    if (y == null) return -1;
+    return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * s;
+  });
+}
+
+function render() {
+  writeHash();
+  renderFacets();
+  const shown = sortRuns(runs.filter(r => matches(r)));
+  $('count').textContent = `顯示 ${shown.length} / ${runs.length} 筆`
+    + ($('count').dataset.gen ? `　·　索引更新於 ${$('count').dataset.gen}` : '');
+  const groups = new Map();
+  for (const r of shown) {
+    const g = state.groupBy ? (state.groupBy in r._a ? fmt(r._a[state.groupBy]) : NONE) : '全部';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(r);
+  }
+  const order = [...groups.keys()].sort((a, b) => (a === NONE) - (b === NONE)
+    || (state.groupBy === 'date' ? b.localeCompare(a) : a.localeCompare(b, undefined, { numeric: true })));
+  $('list').innerHTML = order.map(g => {
+    const rs = groups.get(g);
+    const sv = rs.map(r => r.avg_energy_saving).filter(v => typeof v === 'number');
+    const avg = sv.length ? `平均節能率 ${(sv.reduce((a, b) => a + b, 0) / sv.length).toFixed(2)}%` : '';
+    const desc = state.groupBy === 'series' && rs[0].series_desc ? `　${rs[0].series_desc}` : '';
+    return `<details class="group" ${order.length <= 12 ? 'open' : ''}><summary>${state.groupBy ? `${label(state.groupBy)}：` : ''}${esc(g)}`
+      + `<span class="meta">${rs.length} 筆　${avg}${esc(desc)}</span></summary>`
+      + `<div class="tablewrap"><table><thead>${headRow()}</thead><tbody>${rs.map(rowHtml).join('')}</tbody></table></div></details>`;
+  }).join('') || '<p class="muted">沒有符合條件的實驗</p>';
+}
+
+const COLS = [
+  ['name', '名稱'], ['time', '時間'], ['topo', '拓撲'], ['energy_ratio', '能耗比'], ['traffic_level', '流量'],
+  ['_setting', '演算法／主要設定'], ['avg_energy_saving', '平均節能率'], ['has_snap', 'snap'],
+];
+function headRow() {
+  const [key] = state.sortBy.split(':');
+  return '<tr>' + COLS.map(([k, t]) => `<th data-k="${k}" class="${k === key ? 'sorted' : ''}">${t}</th>`).join('') + '</tr>';
+}
+const SHORT = { ENABLE_WEIGHT_MAP: 'WM', PRESEED_ENDPOINTS: 'ESP', LINK_WEIGHT: 'LW', LINK_PRUNE: 'prune', WEIGHT_MODE: 'W' };
+function setting(r) {
+  const f = r.flags || {}, parts = [];
+  if (r.algorithm) parts.push(r.algorithm);
+  if (f.SORT_MODE) parts.push(f.SORT_MODE);
+  for (const [k, s] of Object.entries(SHORT)) {
+    if (!(k in f)) continue;
+    const v = f[k];
+    if (v === true) parts.push(s + '✓'); else if (v === false) parts.push(s + '✗');
+    else if (v !== null && k !== 'WEIGHT_MODE') parts.push(`${s}=${v}`);
+  }
+  if (r.variant && !parts.includes(r.variant)) parts.push(r.variant);
+  if (r.nsp) parts.push('NSP');
+  if (r.random_seed != null) parts.push(`rs${r.random_seed}`);
+  return parts.join(' · ');
+}
+function rowHtml(r) {
+  const v = r.avg_energy_saving;
+  return `<tr class="run" data-i="${r._i}"><td>${esc(r.name || r.path)}${r.note ? `<div class="muted note">${esc(r.note)}</div>` : ''}</td><td>${r.time || ''}</td>`
+    + `<td>${esc(r.topo || '')}</td><td>${r.energy_ratio || ''}</td><td>${r.traffic_level || ''}</td>`
+    + `<td title="${esc(JSON.stringify(r.flags || {}))}">${esc(setting(r))}</td>`
+    + `<td class="num">${typeof v === 'number' ? v.toFixed(2) + '%' : ''}</td>`
+    + `<td>${r.snaps && r.snaps.length ? `<span class="dot" title="${r.snaps.length} 個 snap 檔"></span> ${r.snaps.length}` : ''}</td></tr>`;
+}
+function detailHtml(r) {
+  const kv = Object.entries(r._a).sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+    .map(([k, v]) => `<span class="k">${esc(label(k))}</span><span>${esc(fmt(v))}</span>`).join('');
+  const extra = r.milp_status ? `<span class="k">MILP 求解狀態</span><span>${esc(JSON.stringify(r.milp_status))}</span>` : '';
+  const snaps = (r.snaps || []).map(s =>
+    `<button data-run="${r._i}" data-snap="${esc(s)}">${esc(s.replace(/-snap\.txt$/, ''))}</button>`).join('');
+  return `<tr class="detail"><td colspan="${COLS.length}"><div class="kv">${kv}${extra}</div>`
+    + (snaps ? `<div class="snaps"><b>播放 snap：</b>${snaps}</div>` : '') + '</td></tr>';
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// 每個屬性的勾選清單；數量是「套用其他條件後」的筆數（同屬性內是 OR，屬性之間是 AND）
+function renderFacets() {
+  const openNow = new Set([...document.querySelectorAll('#facets details[open]')].map(d => d.dataset.k));
+  $('facets').innerHTML = facetKeys.map(k => {
+    const counts = new Map();
+    runs.forEach(r => { if (matches(r, k)) { const v = k in r._a ? fmt(r._a[k]) : NONE; counts.set(v, (counts.get(v) || 0) + 1); } });
+    const sel = state.sel[k] || [];
+    sel.forEach(v => counts.has(v) || counts.set(v, 0));
+    const vals = [...counts.keys()].sort((a, b) => (a === NONE) - (b === NONE) || a.localeCompare(b, undefined, { numeric: true }));
+    const isOpen = openNow.size ? openNow.has(k) || sel.length : OPEN_FACETS.has(k) || sel.length;
+    return `<details data-k="${k}" ${isOpen ? 'open' : ''}><summary>${esc(label(k))}${sel.length ? ` <span class="n">（${sel.length}）</span>` : ''}</summary>`
+      + vals.map(v => `<label class="${v === NONE ? 'none' : ''}"><input type="checkbox" data-k="${k}" value="${esc(v)}" ${sel.includes(v) ? 'checked' : ''}>`
+        + `<span>${esc(v)}</span><span class="c">${counts.get(v)}</span></label>`).join('') + '</details>';
+  }).join('');
+}
+
+// ── 事件 ────────────────────────────────────────────
+$('facets').onchange = e => {
+  const cb = e.target; if (!cb.dataset.k) return;
+  const s = new Set(state.sel[cb.dataset.k] || []);
+  cb.checked ? s.add(cb.value) : s.delete(cb.value);
+  state.sel[cb.dataset.k] = [...s];
+  if (!s.size) delete state.sel[cb.dataset.k];
+  render();
+};
+$('q').oninput = e => { state.q = e.target.value; render(); };
+$('groupBy').onchange = e => { state.groupBy = e.target.value; render(); };
+$('sortBy').onchange = e => { state.sortBy = e.target.value; render(); };
+$('clear').onclick = () => { state.sel = {}; state.q = ''; $('q').value = ''; render(); };
+$('list').onclick = e => {
+  const th = e.target.closest('th[data-k]');
+  if (th) {
+    const k = th.dataset.k; if (k.startsWith('_') || k === 'has_snap') return;
+    const [cur, dir] = state.sortBy.split(':');
+    state.sortBy = `${k}:${cur === k && dir === 'desc' ? 'asc' : 'desc'}`;
+    if ([...$('sortBy').options].some(o => o.value === state.sortBy)) $('sortBy').value = state.sortBy;
+    render(); return;
+  }
+  const sb = e.target.closest('button[data-snap]');
+  if (sb) { openPlayer(runs[Number(sb.dataset.run)], sb.dataset.snap); return; }
+  const tr = e.target.closest('tr.run'); if (!tr) return;
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('detail')) { next.remove(); return; }
+  tr.insertAdjacentHTML('afterend', detailHtml(runs[Number(tr.dataset.i)]));
+};
+
+// ── 播放器：頁面上方開 snap_player.html，把該實驗所有 snap 的 File 用 postMessage 傳過去 ──
+// 播放器載入完會主動回報 'player-ready'（握手），比等 iframe onload 可靠
+let playerIsReady = false, readyWaiters = [];
+window.addEventListener('message', e => {
+  if (e.data && e.data.type === 'player-ready') { playerIsReady = true; readyWaiters.splice(0).forEach(f => f()); }
+});
+function playerFrame() {
+  if (playerIsReady) return Promise.resolve();
+  const f = $('playerFrame');
+  if (!f.getAttribute('src') && !f.srcdoc) f.src = 'snap_player.html';
+  return new Promise((ok, ng) => {
+    readyWaiters.push(ok);
+    setTimeout(() => ng(new Error('播放器沒有回應：請確認 snap_player.html 跟 log_viewer.html 在同一個資料夾')), 5000);
+  });
+}
+async function openPlayer(r, snap) {
+  if (!await ensureSource()) {   // 使用者取消，或不支援記住資料夾的瀏覽器（選完要再點一次）
+    if (!HAS_FS) banner('warn', '播放 snap 需要讀取資料夾：請在跳出的視窗選 <code>log</code> 資料夾，選好後再點一次 snap。');
+    return;
+  }
+  $('player').hidden = false;
+  $('playerTitle').textContent = `${r.name || r.path}　·　${r.path}`;
+  try {
+    const files = await Promise.all(r.snaps.map(async s => ({ path: `${r.path}/${s}`, file: await source.getFile(`${r.path}/${s}`) })));
+    await playerFrame();
+    $('playerFrame').contentWindow.postMessage({ type: 'snaps', files, want: `${r.path}/${snap}` }, '*');
+  } catch (e) {
+    $('playerTitle').textContent = /播放器/.test(e.message) ? e.message
+      : `讀不到 snap 檔（${e.message}）：資料夾可能被移動，請按「重新讀取」或重新選資料夾`;
+  }
+}
+const closePlayer = () => { $('player').hidden = true; };
+$('playerClose').onclick = closePlayer;
+$('player').onclick = e => { if (e.target === $('player')) closePlayer(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePlayer(); });
+window.addEventListener('message', e => { if (e.data && e.data.type === 'close-player') closePlayer(); });
+
+// 篩選狀態存在網址 # 後面：F5 重新整理不會不見，也可以把網址存成書籤當常用檢視
+function writeHash() { history.replaceState(null, '', '#' + encodeURIComponent(JSON.stringify(state))); }
+function readHash() {
+  try { if (location.hash.length > 1) Object.assign(state, JSON.parse(decodeURIComponent(location.hash.slice(1)))); } catch (e) {}
+}
+
+init();
+</script>
+</body>
+</html>
