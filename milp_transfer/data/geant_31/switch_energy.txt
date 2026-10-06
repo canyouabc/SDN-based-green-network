@@ -1,0 +1,24 @@
+# dpid  type   energy(unit)
+# 比照論文 Section III 節能公式，switch:link = 3:1（論文引用 [21]：switch 功耗設為 link 的 3 倍）
+1	GEANT	3	# at1.at
+2	GEANT	3	# be1.be
+3	GEANT	3	# ch1.ch
+4	GEANT	3	# cz1.cz
+5	GEANT	3	# de1.de
+6	GEANT	3	# es1.es
+7	GEANT	3	# fr1.fr
+8	GEANT	3	# gr1.gr
+9	GEANT	3	# hr1.hr
+10	GEANT	3	# hu1.hu
+11	GEANT	3	# ie1.ie
+12	GEANT	3	# il1.il
+13	GEANT	3	# it1.it
+14	GEANT	3	# lu1.lu
+15	GEANT	3	# nl1.nl
+16	GEANT	3	# ny1.ny
+17	GEANT	3	# pl1.pl
+18	GEANT	3	# pt1.pt
+19	GEANT	3	# se1.se
+20	GEANT	3	# si1.si
+21	GEANT	3	# sk1.sk
+22	GEANT	3	# uk1.uk
