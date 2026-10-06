@@ -5,7 +5,8 @@
 
   nsp_31_geant.png
 
-MILP=None 的點不畫；結果等學校電腦（milp_transfer/RUN_geant_31_k357.md）。
+MILP：milp_transfer/results_milpsnap_31/seed_milpsnap_geant_k0{3,5,7}_results.csv（--topo geant_31，2120 題全 OPTIMAL，
+milp_transfer/RUN_geant_31_k357.md），combine_milp_snapshot.py 還原逐 batch 後取 10 batch 平均。
 
 ── 資料來源 ──
 sim.py + sweep_sorted.run_one_combo，topo=geant_31，seed_000_geant_k0{3,5,7}.json（0.1～0.5 Mbps，flow 15 秒，10 batch），
@@ -17,9 +18,9 @@ import plot_nsp9_31 as base
 
 DATA = {
     'geant': {
-        3: {'SPF': 70.31, 'SPF+NSP': 70.31, 'ESP': 70.58, 'ESP+NSP': 70.58, 'MILP': None},
-        5: {'SPF': 60.90, 'SPF+NSP': 60.95, 'ESP': 61.41, 'ESP+NSP': 61.46, 'MILP': None},
-        7: {'SPF': 52.35, 'SPF+NSP': 52.46, 'ESP': 52.95, 'ESP+NSP': 53.08, 'MILP': None},
+        3: {'SPF': 70.31, 'SPF+NSP': 70.31, 'ESP': 70.58, 'ESP+NSP': 70.58, 'MILP': 71.17},
+        5: {'SPF': 60.90, 'SPF+NSP': 60.95, 'ESP': 61.41, 'ESP+NSP': 61.46, 'MILP': 62.07},
+        7: {'SPF': 52.35, 'SPF+NSP': 52.46, 'ESP': 52.95, 'ESP+NSP': 53.08, 'MILP': 53.85},
     },
 }
 
