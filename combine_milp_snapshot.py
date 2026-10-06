@@ -14,16 +14,21 @@
 #
 # 用法：
 #   python combine_milp_snapshot.py milp_transfer/seed_milpsnap_grid4x4_mid.json \
-#       <seed_milpsnap_grid4x4_mid_results.csv> [out_dir]
+#       <seed_milpsnap_grid4x4_mid_results.csv> [out_dir] [--paths <paths.jsonl>]
+#
+# --paths：milp_energy_saving.py --paths-out 輸出的最優路徑檔。有給的話，另外在 out_dir
+# 產出每個原始 batch 的 b{N}-snap.txt（snap_player.html 讀這個）。一個 segment = 一幀
+# （event='milp_segment'），每幀都是獨立求解的最優解，相鄰兩幀同一條 flow 的路徑可能整條不同。
 # ─────────────────────────────────────────────────────────────────
 import os
-import sys
+import argparse
 import csv
 import json
 
 import sim
 from parse_log import parse_log
 import matplotlib_DTM
+from modules.link_status import Link_Status
 
 
 def combine(snap_json, milp_csv, out_dir):
@@ -65,10 +70,64 @@ def combine(snap_json, milp_csv, out_dir):
     return base, status
 
 
+def write_snaps(snap_json, paths_jsonl, out_dir):
+    """依 segments 把 MILP 最優路徑展開成 snap_player.html 讀的 b{N}-snap.txt。"""
+    snap = json.load(open(snap_json, encoding='utf-8'))
+    paths = {}
+    with open(paths_jsonl, encoding='utf-8') as f:
+        for line in f:
+            if line.strip():
+                r = json.loads(line)
+                paths[r['batch']] = r
+    need = {s['milp_batch_id'] for s in snap['segments'] if s['milp_batch_id']}
+    missing = sorted(b for b in need if b not in paths or paths[b]['flows'] is None)
+    if missing:
+        raise ValueError(f"路徑檔缺 {len(missing)} 個 batch（或該 batch 無解），例如 {missing[:5]}")
+
+    classify = Link_Status(None).get_link_status
+    link_keys = next(iter(paths.values()))['links'].keys()
+    os.makedirs(out_dir, exist_ok=True)
+
+    by_batch = {}
+    for s in snap['segments']:
+        by_batch.setdefault(s['orig_batch'], []).append(s)
+    for ob in sorted(by_batch):
+        with open(os.path.join(out_dir, f'b{ob}-snap.txt'), 'w', encoding='utf-8') as out:
+            for s in sorted(by_batch[ob], key=lambda s: s['t_start']):
+                r = paths.get(s['milp_batch_id'])
+                usage = r['links'] if r else dict.fromkeys(link_keys, 0.0)
+                frame = {
+                    'event':      'milp_segment',
+                    'src':        None,
+                    'dst':        None,
+                    'path':       None,
+                    't':          s['t_start'],
+                    't_end':      s['t_end'],
+                    'milp_batch': s['milp_batch_id'],
+                    'active':     [[fl['src'], fl['dst'], fl['path']] for fl in r['flows']] if r else [],
+                    'bw':         [fl['bw_mbps'] for fl in r['flows']] if r else [],
+                    'ns':         [],
+                    'links':      {k: {'s': classify(p), 'p': round(p, 1)} for k, p in usage.items()},
+                    'energy_pct': round(r['energy_saving_percent'], 1) if r else 100.0,
+                }
+                out.write(f"[SIM_SNAPSHOT] {json.dumps(frame, ensure_ascii=False)}\n")
+    return sorted(by_batch)
+
+
 if __name__ == '__main__':
-    snap_json, milp_csv = sys.argv[1], sys.argv[2]
-    out_dir = sys.argv[3] if len(sys.argv) > 3 else os.path.join(
+    parser = argparse.ArgumentParser()
+    parser.add_argument('snap_json')
+    parser.add_argument('milp_csv')
+    parser.add_argument('out_dir', nargs='?', default=None)
+    parser.add_argument('--paths', default=None,
+                        help='milp_energy_saving.py --paths-out 的 .jsonl；有給就另外產出 b{N}-snap.txt')
+    args = parser.parse_args()
+    snap_json, milp_csv = args.snap_json, args.milp_csv
+    out_dir = args.out_dir or os.path.join(
         'log', 'milpsnap-' + os.path.splitext(os.path.basename(snap_json))[0])
     base, status = combine(snap_json, milp_csv, out_dir)
+    if args.paths:
+        batches = write_snaps(snap_json, args.paths, out_dir)
+        print(f"已產出 {len(batches)} 個 snap 檔到 {out_dir}")
     print(f"MILP 狀態統計：{status}")
     print(base[['mean_after_100']].to_string())

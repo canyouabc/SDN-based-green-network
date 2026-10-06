@@ -68,6 +68,8 @@ SEED_PATH = 'seed_000_grid3x3_high.json'
 TOPO      = 'grid_3x3'   # 'grid'(5x5) | 'cap' | 'grid_2x2' | 'grid_3x3' | 'grid_4x4' | 'grid_6x6' | 'grid_7x7'
 ALGORITHM = 'sorted'
 MAKE_PLOTS = False   # 每組 combo 是否也產出 batch_N.png（組數多時建議關閉）
+SAVE_SNAP  = False   # 每組 combo 是否也輸出 b{batch_id}-snap.txt（snap_player.html 讀這個）
+                     # 每個事件寫兩筆完整狀態 JSON，5x5 一個 batch 約 1MB、大拓撲可到數十 MB，組數多時建議關閉
 
 # 未被 combo 覆蓋的旗標，一律重置回這裡的值，確保每組互不影響、可重現
 BASELINE = {
@@ -168,6 +170,8 @@ def run_one_combo(combo, seed_data):
             # 不會累加成 batch1、batch1+batch2、batch1+batch2+batch3。
             s = sim.Simulator(algorithm=ALGORITHM, log_path=log_path)
             bid = batch['batch_id']
+            if SAVE_SNAP:
+                s._snap_logger = sim._SnapLogger(f"{run_dir}/b{bid}-snap.txt")
             events = sim.load_seed_events(batch, flow_duration)
             event_idx, n_events = 0, len(events)
 
@@ -183,6 +187,8 @@ def run_one_combo(combo, seed_data):
                 s._log_energy_second(sec)
             s._log_history()
             s._log(f"=== BATCH {bid} END ===")
+            if s._snap_logger is not None:
+                s._snap_logger.close()
     finally:
         sys.stdout = old_stdout
         tee.close()

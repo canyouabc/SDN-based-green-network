@@ -337,19 +337,43 @@ def load_flows_from_seed(seed_path, batch_id=None, topo=None):
     return flows
 
 
+def _paths_record(batch_id, seed_flows, result, link_bw, undirected_links):
+    """--paths-out 的一行：每條 flow 的 host 名稱／頻寬／最優路徑，加上每條 link 的使用率（%）。
+    使用率算法跟 sim.py 的 _recompute_link_load 相同：經過該 link 的 flow 頻寬（不分方向）加總 / 容量。
+    flow_paths 跟傳進 solve() 的 flows 同順序，所以可以直接跟 seed 的 flows 對齊取回 host 名稱。"""
+    if 'flow_paths' not in result:
+        return {'batch': batch_id, 'status': result.get('error'), 'flows': None, 'links': None}
+    load = {}
+    flows = []
+    for fl, fp in zip(seed_flows, result['flow_paths']):
+        path = fp['path']
+        for u, v in zip(path, path[1:]):
+            if isinstance(u, int) and isinstance(v, int):   # 跳過「重建失敗」的字串標記
+                k = (min(u, v), max(u, v))
+                load[k] = load.get(k, 0.0) + fp['bw_mbps']
+        flows.append({'src': fl['src'], 'dst': fl['dst'], 'bw_mbps': fp['bw_mbps'], 'path': path})
+    links = {f'{u},{v}': round(load.get((u, v), 0.0) / link_bw[(u, v)] * 100.0, 3) if link_bw[(u, v)] > 0 else 0.0
+             for (u, v) in undirected_links}
+    return {'batch': batch_id, 'status': result['status_name'],
+            'energy_saving_percent': result['energy_saving_percent'], 'flows': flows, 'links': links}
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--topo', type=str, required=True, help='拓樸資料夾名稱，例如 grid_2x2（對應 data/grid_2x2/）')
     parser.add_argument('--seed-path', type=str, required=True)
     parser.add_argument('--batch-id', type=int, default=None, help='要用 seed 檔裡的哪個 batch，預設用第一個')
     parser.add_argument('--time-limit', type=float, default=None, help='Gurobi 求解秒數上限')
-    parser.add_argument('--mip-gap', type=float, default=None, help='容許的最優性誤差比例，例如 0.01=1%')
+    parser.add_argument('--mip-gap', type=float, default=None, help='容許的最優性誤差比例，例如 0.01=1%%')
     parser.add_argument('--all-batches', action='store_true',
                          help='在同一個 process 內跑完 seed 檔的全部 batch（不逐次重開 process/重建 '
                               'Gurobi environment），輸出成 csv。batch 數很多（例如 1000）時務必用這個，'
                               '否則光是重複啟動 process 的開銷就會比實際求解時間貴很多')
     parser.add_argument('--csv-out', type=str, default=None,
                          help='--all-batches 的 csv 輸出路徑，預設用 seed 檔名推導（去掉 .json 加 _results.csv）')
+    parser.add_argument('--paths-out', type=str, default=None,
+                         help='--all-batches 時另外輸出每個 batch 的最優路徑（一行一筆 JSON，.jsonl），'
+                              '給 combine_milp_snapshot.py --paths 產生 snap_player.html 用的 snap 檔；不給就不輸出')
     args = parser.parse_args()
 
     topo_dir = f'data/{args.topo}'
@@ -364,6 +388,7 @@ if __name__ == '__main__':
         switch_energy = load_energy_col3(f'{topo_dir}/switch_energy.txt')
         n_switches, n_links = len(switch_energy), len(undirected_links)
 
+        paths_f = open(args.paths_out, 'w', encoding='utf-8') if args.paths_out else None
         with open(csv_path, 'w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['topo', 'seed_file', 'batch', 'n_switches', 'n_links', 'n_flows',
@@ -381,8 +406,16 @@ if __name__ == '__main__':
                     result.get('mip_gap'), round(elapsed, 3),
                     result.get('status_name', result.get('error')),
                 ])
+                if paths_f:
+                    paths_f.write(json.dumps(
+                        _paths_record(batch.get('batch_id', i + 1), batch['flows'], result,
+                                      link_bw, undirected_links),
+                        ensure_ascii=False) + '\n')
                 if (i + 1) % 100 == 0 or i + 1 == len(batches):
                     print(f"[{args.seed_path}] {i+1}/{len(batches)} batch 完成")
+        if paths_f:
+            paths_f.close()
+            print(f"已存檔 {args.paths_out}")
         print(f"已存檔 {csv_path}")
     else:
         flows = load_flows_from_seed(args.seed_path, args.batch_id, topo=args.topo)

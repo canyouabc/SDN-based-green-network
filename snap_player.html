@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snap Player</title>
+<!--
+  snap_player.html
+  ----------------
+  讀取 sim.py 輸出的 b{N}-snap.txt（每行 "[SIM_SNAPSHOT] {json}"），在瀏覽器即時繪製。
+  不預先渲染圖片，檔案大小只等於 log 本身。
+  用法：瀏覽器打開本檔 → 選檔或把 snap 檔拖進視窗。
+  拓撲：switch 數為平方數且 link 都是上下左右相鄰 → 畫成 grid；否則用力導向自動排版。
+-->
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #6b7385; --line: #e2e5eb;
+  --accent: #2f6fde; --sw-on: #2f6fde; --sw-off: #c9ced8;
+  --SN: #d5dbdb; --LOW: #85c1e9; --NORMAL: #58c58a; --HIGH: #e8c547; --OVERLOAD: #ec7a6c; --DANGER: #b0322a;
+  --ev-add: #2f6fde; --ev-rem: #d0473a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171d; --panel: #1c2028; --ink: #e6e9ef; --muted: #8e96a8; --line: #2c323d;
+    --accent: #6b9cff; --sw-on: #6b9cff; --sw-off: #3a414e; --SN: #3a414e;
+    --ev-add: #6b9cff; --ev-rem: #ff7a6b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171d; --panel: #1c2028; --ink: #e6e9ef; --muted: #8e96a8; --line: #2c323d;
+  --accent: #6b9cff; --sw-on: #6b9cff; --sw-off: #3a414e; --SN: #3a414e;
+  --ev-add: #6b9cff; --ev-rem: #ff7a6b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.45 system-ui, "Segoe UI", "Microsoft JhengHei", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0 8px 0 0; }
+header .file { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+label.btn, button { font: inherit; padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--ink); cursor: pointer; }
+button:hover, label.btn:hover { border-color: var(--accent); }
+button:disabled { opacity: .4; cursor: default; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px; }
+@media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+/* 高度跟著視窗走（扣掉標題列、控制列、圖例），viewBox 會等比縮放讓整張拓撲塞進去 */
+#stage { width: 100%; height: calc(100vh - 210px); min-height: 280px; display: block; }
+#empty { padding: 60px 16px; text-align: center; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.controls input[type=range] { flex: 1 1 200px; min-width: 120px; }
+.controls .pos { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 110px; }
+.stat { display: flex; justify-content: space-between; gap: 8px; }
+.stat b { font-variant-numeric: tabular-nums; }
+.big { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+.ev { padding: 6px 8px; border-radius: 6px; background: var(--bg); }
+ul.flows { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; }
+ul.flows li { padding: 4px 6px; border-radius: 4px; cursor: pointer; font-variant-numeric: tabular-nums; }
+ul.flows li:hover, ul.flows li.sel { background: var(--bg); }
+ul.flows li.cur { box-shadow: inset 3px 0 0 var(--ev-add); }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
+.chip { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+#spark { width: 100%; height: 60px; display: block; }
+.drop { outline: 3px dashed var(--accent); outline-offset: -8px; }
+svg text { fill: var(--ink); font-size: 11px; pointer-events: none; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+.seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Snap Player</h1>
+  <label class="btn">選擇 snap 檔<input id="file" type="file" accept=".txt,.log,.jsonl" hidden></label>
+  <span class="seg">
+    <button id="mAll" class="on" title="每條 active flow 用不同顏色畫出路徑，共用同一條 link 時並排顯示">所有流量的連線</button>
+    <button id="mOne" title="只標出這一幀事件的 flow">特定流量的連線</button>
+  </span>
+  <label><input id="showTrigger" type="checkbox"> 顯示處理前幀（trigger_*）</label>
+  <span class="file" id="fname">尚未載入（也可以把檔案拖進視窗）</span>
+</header>
+<main>
+  <section class="card">
+    <div id="empty">選擇或拖入 <code>log/sim-*/b{N}-snap.txt</code></div>
+    <svg id="stage" viewBox="0 0 600 600" hidden></svg>
+    <div class="controls">
+      <button id="bFirst" title="第一幀 (Home)">⏮</button>
+      <button id="bPrev" title="上一幀 (←)">◀</button>
+      <button id="bPlay" title="播放／暫停 (空白鍵)">▶</button>
+      <button id="bNext" title="下一幀 (→)">▶|</button>
+      <button id="bLast" title="最後一幀 (End)">⏭</button>
+      <input id="slider" type="range" min="0" max="0" value="0">
+      <span class="pos" id="pos">0 / 0</span>
+      <select id="speed" title="每秒幾幀">
+        <option value="1">1 幀/秒</option><option value="3" selected>3 幀/秒</option>
+        <option value="10">10 幀/秒</option><option value="30">30 幀/秒</option>
+      </select>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+  <aside class="card">
+    <div class="stat"><span class="muted">模擬時間</span><b id="t">–</b></div>
+    <div class="big" id="energy">–</div>
+    <div class="muted">節能率</div>
+    <svg id="spark" viewBox="0 0 300 60" preserveAspectRatio="none"></svg>
+    <h2>目前事件</h2>
+    <div class="ev" id="ev">–</div>
+    <h2>Switch</h2>
+    <div class="stat"><span>開著／全部</span><b id="swc">–</b></div>
+    <h2>Active flows <span id="fc"></span></h2>
+    <ul class="flows" id="flows"></ul>
+    <h2>非 SN link</h2>
+    <table id="links"></table>
+    <p class="muted" style="font-size:12px">sim 的 snap 檔沒有每條 flow 的頻寬；link 使用率取自 link_status 當下的值，週期更新模式下可能落後事件。MILP 的 snap 檔（combine_milp_snapshot.py --paths）有頻寬，使用率由頻寬直接算出。</p>
+  </aside>
+</main>
+<script>
+const STATUSES = ['SN', 'LOW', 'NORMAL', 'HIGH', 'OVERLOAD', 'DANGER'];
+const EVENT_TEXT = {
+  admit: '新增', depart: '結束', trigger_admit: '新增（處理前）', trigger_depart: '結束（處理前）',
+  reroute_rem: '換路：移除舊路徑', reroute_add: '換路：裝上新路徑',
+};
+const $ = id => document.getElementById(id);
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+let all = [], frames = [], idx = 0, timer = null, selFlow = null;
+let mode = 'all';   // 'all'：所有 active flow 經過的 link；'one'：只標這一幀事件的 flow
+let pos = {}, edges = [], nodes = [], els = {};
+
+// ── 載入 ─────────────────────────────────────────────
+function parseSnap(text) {
+  const out = [];
+  for (const line of text.split('\n')) {
+    const i = line.indexOf('{');
+    if (!line.startsWith('[SIM_SNAPSHOT]') || i < 0) continue;
+    try { out.push(JSON.parse(line.slice(i))); } catch (e) { /* 截斷的行略過 */ }
+  }
+  return out;
+}
+
+function load(text, name) {
+  stop();
+  all = parseSnap(text);
+  if (!all.length) { $('fname').textContent = `${name}：找不到 [SIM_SNAPSHOT] 行`; return; }
+  $('fname').textContent = `${name}（${all.length} 筆快照）`;
+  buildTopology();
+  assignFlowColors();
+  applyFilter();
+}
+
+function applyFilter() {
+  frames = $('showTrigger').checked ? all : all.filter(f => !f.event.startsWith('trigger_'));
+  $('slider').max = Math.max(0, frames.length - 1);
+  drawSpark();
+  show(0);
+}
+
+// ── 拓撲排版 ─────────────────────────────────────────
+function buildTopology() {
+  const keys = new Set();
+  for (const f of all) for (const k of Object.keys(f.links)) keys.add(k);
+  edges = [...keys].map(k => k.split(',').map(Number));
+  nodes = [...new Set(edges.flat())].sort((a, b) => a - b);
+  pos = gridLayout() || forceLayout();
+
+  const svg = $('stage');
+  svg.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const mk = (tag, attrs, parent = svg) => {
+    const e = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    parent.appendChild(e); return e;
+  };
+  els = { links: {}, nodes: {}, labels: {} };
+  const gL = mk('g', {});
+  els.flowG = mk('g', {});   // 「所有流量」模式：每條 flow 一種顏色，每幀重畫
+  const gP = mk('g', {}), gN = mk('g', {});
+  for (const [u, v] of edges) {
+    const l = mk('line', { x1: pos[u][0], y1: pos[u][1], x2: pos[v][0], y2: pos[v][1],
+      'stroke-linecap': 'round' }, gL);
+    l.appendChild(document.createElementNS(ns, 'title'));
+    els.links[`${u},${v}`] = l;
+  }
+  els.pathEv = mk('polyline', { fill: 'none', 'stroke-width': 7, 'stroke-linejoin': 'round',
+    'stroke-linecap': 'round', opacity: .55 }, gP);
+  els.pathSel = mk('polyline', { fill: 'none', 'stroke-width': 4, 'stroke-dasharray': '2 6',
+    'stroke-linecap': 'round', stroke: 'currentColor' }, gP);
+  const r = nodes.length > 30 ? 11 : 15;
+  for (const n of nodes) {
+    els.nodes[n] = mk('circle', { cx: pos[n][0], cy: pos[n][1], r, 'stroke-width': 2 }, gN);
+    const t = mk('text', { x: pos[n][0], y: pos[n][1] + 4, 'text-anchor': 'middle' }, gN);
+    t.textContent = n;
+  }
+  svg.hidden = false; $('empty').hidden = true;
+  $('legend').innerHTML = STATUSES.map(s => `<span><span class="chip" style="background:var(--${s})"></span>${s}</span>`).join('')
+    + `<span><span class="chip" style="background:var(--sw-on);border-radius:50%"></span>switch 開著</span>`
+    + `<span><span class="chip" style="background:var(--sw-off);border-radius:50%"></span>switch 睡眠</span>`
+    + `<span>所有流量模式：每條 flow 一種顏色（右側清單有對照色塊），同一條 link 上並排</span>`;
+}
+
+// 每條 flow（src→dst）固定一種顏色：依整份檔案中第一次出現的順序，用黃金角分散色相
+let flowColorIdx = {};
+function assignFlowColors() {
+  flowColorIdx = {};
+  for (const f of all) for (const [s, d] of f.active) {
+    const k = `${s}>${d}`;
+    if (!(k in flowColorIdx)) flowColorIdx[k] = Object.keys(flowColorIdx).length;
+  }
+}
+const flowColor = (s, d) => `hsl(${(flowColorIdx[`${s}>${d}`] ?? 0) * 137.508 % 360}, 72%, 50%)`;
+
+function gridLayout() {
+  const N = Math.round(Math.sqrt(nodes.length));
+  if (N * N !== nodes.length || nodes[0] !== 1 || nodes[nodes.length - 1] !== N * N) return null;
+  const rc = n => [Math.floor((n - 1) / N), (n - 1) % N];
+  for (const [u, v] of edges) {
+    const [a, b] = rc(u), [c, d] = rc(v);
+    if (Math.abs(a - c) + Math.abs(b - d) !== 1) return null;
+  }
+  const step = 520 / Math.max(1, N - 1), off = N === 1 ? 300 : 40;
+  const p = {};
+  for (const n of nodes) { const [r, c] = rc(n); p[n] = [off + c * step, off + r * step]; }
+  return p;
+}
+
+function forceLayout() {
+  // 確定性的力導向：初始放在圓上，彈簧 + 斥力迭代
+  const p = {}, n = nodes.length;
+  nodes.forEach((v, i) => { const a = 2 * Math.PI * i / n; p[v] = [300 + 220 * Math.cos(a), 300 + 220 * Math.sin(a)]; });
+  const k = Math.sqrt(500 * 500 / n);
+  for (let it = 0; it < 400; it++) {
+    const d = {}; nodes.forEach(v => d[v] = [0, 0]);
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      const a = nodes[i], b = nodes[j];
+      let dx = p[a][0] - p[b][0], dy = p[a][1] - p[b][1], dist = Math.hypot(dx, dy) || .01;
+      const f = k * k / dist; dx /= dist; dy /= dist;
+      d[a][0] += dx * f; d[a][1] += dy * f; d[b][0] -= dx * f; d[b][1] -= dy * f;
+    }
+    for (const [a, b] of edges) {
+      let dx = p[a][0] - p[b][0], dy = p[a][1] - p[b][1], dist = Math.hypot(dx, dy) || .01;
+      const f = dist * dist / k; dx /= dist; dy /= dist;
+      d[a][0] -= dx * f; d[a][1] -= dy * f; d[b][0] += dx * f; d[b][1] += dy * f;
+    }
+    const temp = 30 * (1 - it / 400) + 1;
+    for (const v of nodes) {
+      const m = Math.hypot(...d[v]) || 1;
+      p[v][0] += d[v][0] / m * Math.min(m, temp); p[v][1] += d[v][1] / m * Math.min(m, temp);
+    }
+  }
+  // 正規化到 40..560
+  const xs = nodes.map(v => p[v][0]), ys = nodes.map(v => p[v][1]);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const s = 520 / Math.max(x1 - x0, y1 - y0, 1);
+  for (const v of nodes) p[v] = [40 + (p[v][0] - x0) * s, 40 + (p[v][1] - y0) * s];
+  return p;
+}
+
+// ── 繪製單一幀 ───────────────────────────────────────
+const pts = path => (path || []).filter(n => pos[n]).map(n => pos[n].join(',')).join(' ');
+
+// 「所有流量」模式：每條 flow 用自己的顏色，同一條 link 上的多條 flow 往兩側平移並排
+function drawFlowLanes(f) {
+  const g = els.flowG;
+  g.innerHTML = '';
+  if (mode !== 'all') return;
+  const lanes = {};   // link key → [{s, d, u, v}]
+  for (const [s, d, p] of f.active)
+    for (let j = 0; j + 1 < p.length; j++) {
+      const k = `${Math.min(p[j], p[j + 1])},${Math.max(p[j], p[j + 1])}`;
+      (lanes[k] = lanes[k] || []).push({ s, d });
+    }
+  const ns = 'http://www.w3.org/2000/svg';
+  const nodeR = nodes.length > 30 ? 11 : 15;
+  for (const [k, list] of Object.entries(lanes)) {
+    const [a, b] = k.split(',').map(Number);
+    if (!pos[a] || !pos[b]) continue;
+    // 固定排序（依顏色編號），同一條 flow 在不同 link 上大致待在同一側
+    list.sort((x, y) => flowColorIdx[`${x.s}>${x.d}`] - flowColorIdx[`${y.s}>${y.d}`]);
+    const [x1, y1] = pos[a], [x2, y2] = pos[b];
+    const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+    const nx = -(y2 - y1) / len, ny = (x2 - x1) / len;   // 法向量
+    const lane = Math.min(6, (nodeR * 1.8) / list.length);   // 整束寬度不超過 switch 圓點
+    list.forEach(({ s, d }, i) => {
+      const off = (i - (list.length - 1) / 2) * lane;
+      const l = document.createElementNS(ns, 'line');
+      const dim = selFlow && !(selFlow[0] === s && selFlow[1] === d);
+      for (const [attr, v] of Object.entries({
+        x1: x1 + nx * off, y1: y1 + ny * off, x2: x2 + nx * off, y2: y2 + ny * off,
+        stroke: flowColor(s, d), 'stroke-width': Math.max(1.5, lane * .85),
+        'stroke-linecap': 'round', opacity: dim ? .12 : .9,
+      })) l.setAttribute(attr, v);
+      const t = document.createElementNS(ns, 'title');
+      t.textContent = `${s} → ${d}　（link ${k} 上共 ${list.length} 條 flow）`;
+      l.appendChild(t);
+      g.appendChild(l);
+    });
+  }
+}
+
+function show(i) {
+  if (!frames.length) return;
+  idx = Math.max(0, Math.min(frames.length - 1, i));
+  const f = frames[idx];
+  $('slider').value = idx;
+  $('pos').textContent = `${idx + 1} / ${frames.length}`;
+
+  const on = new Set(f.active.flatMap(a => a[2]));
+  for (const n of nodes) {
+    const c = els.nodes[n];
+    c.setAttribute('fill', on.has(n) ? css('--sw-on') : css('--sw-off'));
+    c.setAttribute('stroke', css('--panel'));
+  }
+  for (const [k, l] of Object.entries(els.links)) {
+    const info = f.links[k] || { s: 'SN', p: 0 };
+    l.setAttribute('stroke', css(`--${info.s}`));
+    l.setAttribute('stroke-width', info.s === 'SN' ? 3 : 4 + Math.min(info.p, 120) / 12);
+    l.firstChild.textContent = `(${k})  ${info.s}  ${info.p}%`;
+  }
+  drawFlowLanes(f);
+
+  const removing = f.event === 'depart' || f.event === 'trigger_depart' || f.event === 'reroute_rem';
+  els.pathEv.setAttribute('visibility', mode === 'one' ? 'visible' : 'hidden');
+  els.pathEv.setAttribute('points', pts(f.path));
+  els.pathEv.setAttribute('stroke', css(removing ? '--ev-rem' : '--ev-add'));
+  els.pathEv.setAttribute('stroke-dasharray', removing ? '10 8' : '');
+  const sel = selFlow && f.active.find(a => a[0] === selFlow[0] && a[1] === selFlow[1]);
+  els.pathSel.setAttribute('points', sel ? pts(sel[2]) : '');
+  els.pathSel.style.color = css('--ink');
+
+  // MILP 幀（combine_milp_snapshot.py --paths）是一段時間的獨立最優解，沒有單一事件
+  const isSeg = f.event === 'milp_segment';
+  $('t').textContent = isSeg ? `${f.t} – ${f.t_end} s` : `${Number(f.t).toFixed(1)} s`;
+  $('energy').textContent = `${f.energy_pct.toFixed(1)}%`;
+  $('ev').innerHTML = isSeg
+    ? `<b>MILP 最優解</b>　${f.milp_batch == null ? '這段沒有 flow' : `第 ${f.milp_batch} 題`}`
+      + `<br><span class="muted">每段獨立求解，與上一段的路徑沒有延續關係</span>`
+    : `<b>${EVENT_TEXT[f.event] || f.event}</b>　${f.src} → ${f.dst}`
+      + (f.path ? `<br><span class="muted">路徑 [${f.path.join(', ')}]</span>` : '');
+  $('swc').textContent = `${on.size} / ${nodes.length}`;
+  $('fc').textContent = `(${f.active.length})`;
+  $('flows').innerHTML = f.active.map(([s, d, p], j) => {
+    const cls = [s === f.src && d === f.dst ? 'cur' : '', selFlow && s === selFlow[0] && d === selFlow[1] ? 'sel' : ''].join(' ');
+    const bw = f.bw ? ` ${f.bw[j]} Mbps` : '';   // 只有 MILP 幀有頻寬
+    return `<li class="${cls}" data-s="${s}" data-d="${d}"><span class="chip" style="background:${flowColor(s, d)}"></span>${s} → ${d}${bw}　<span class="muted">[${p.join(',')}]</span></li>`;
+  }).join('') || '<li class="muted">（無）</li>';
+  const hot = Object.entries(f.links).filter(([, v]) => v.s !== 'SN').sort((a, b) => b[1].p - a[1].p);
+  $('links').innerHTML = hot.map(([k, v]) =>
+    `<tr><td>(${k})</td><td><span class="chip" style="background:var(--${v.s})"></span>${v.s}</td><td style="text-align:right">${v.p.toFixed(1)}%</td></tr>`
+  ).join('') || '<tr><td class="muted">（全部 SN）</td></tr>';
+  $('spark-cur')?.setAttribute('x1', sparkX(idx));
+  $('spark-cur')?.setAttribute('x2', sparkX(idx));
+}
+
+// ── 節能率走勢 ───────────────────────────────────────
+const sparkX = i => frames.length > 1 ? i / (frames.length - 1) * 300 : 0;
+function drawSpark() {
+  const svg = $('spark');
+  const p = frames.map((f, i) => `${sparkX(i)},${58 - f.energy_pct / 100 * 56}`).join(' ');
+  svg.innerHTML = `<polyline points="${p}" fill="none" stroke="${css('--accent')}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`
+    + `<line id="spark-cur" y1="0" y2="60" stroke="${css('--muted')}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+}
+
+// ── 播放控制 ─────────────────────────────────────────
+function play() {
+  if (!frames.length) return;
+  if (idx >= frames.length - 1) show(0);
+  $('bPlay').textContent = '⏸';
+  timer = setInterval(() => {
+    if (idx >= frames.length - 1) return stop();
+    show(idx + 1);
+  }, 1000 / Number($('speed').value));
+}
+function stop() { clearInterval(timer); timer = null; $('bPlay').textContent = '▶'; }
+const toggle = () => timer ? stop() : play();
+
+$('bFirst').onclick = () => { stop(); show(0); };
+$('bPrev').onclick = () => { stop(); show(idx - 1); };
+$('bNext').onclick = () => { stop(); show(idx + 1); };
+$('bLast').onclick = () => { stop(); show(frames.length - 1); };
+$('bPlay').onclick = toggle;
+$('slider').oninput = e => { stop(); show(Number(e.target.value)); };
+$('speed').onchange = () => { if (timer) { stop(); play(); } };
+const setMode = m => {
+  mode = m;
+  $('mAll').classList.toggle('on', m === 'all');
+  $('mOne').classList.toggle('on', m === 'one');
+  show(idx);
+};
+$('mAll').onclick = () => setMode('all');
+$('mOne').onclick = () => setMode('one');
+$('showTrigger').onchange =() => { if (all.length) applyFilter(); };
+$('flows').onclick = e => {
+  const li = e.target.closest('li[data-s]'); if (!li) return;
+  const k = [li.dataset.s, li.dataset.d];
+  selFlow = selFlow && selFlow[0] === k[0] && selFlow[1] === k[1] ? null : k;
+  show(idx);
+};
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT' || (e.target.tagName === 'INPUT' && e.target.type !== 'range')) return;
+  const act = {
+    ' ': toggle,
+    ArrowRight: () => { stop(); show(idx + 1); },
+    ArrowLeft: () => { stop(); show(idx - 1); },
+    Home: () => { stop(); show(0); },
+    End: () => { stop(); show(frames.length - 1); },
+  }[e.key];
+  // 擋掉滑桿／按鈕自己的預設行為，否則焦點在滑桿上時一次會跳兩幀
+  if (act) { e.preventDefault(); act(); }
+});
+
+const readFile = file => file.text().then(t => load(t, file.name));
+$('file').onchange = e => e.target.files[0] && readFile(e.target.files[0]);
+document.addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drop'); });
+document.addEventListener('dragleave', () => document.body.classList.remove('drop'));
+document.addEventListener('drop', e => {
+  e.preventDefault(); document.body.classList.remove('drop');
+  if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+});
+</script>
+</body>
+</html>
