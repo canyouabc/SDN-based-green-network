@@ -100,6 +100,14 @@ _TOPO_FILES = {
         'k_short_dist':    'data/grid_3x3/k_short_dist.txt',
         'base_weight_map': 'data/grid_3x3/base_weight_map.txt',
     },
+    'grid_3x3_31': {   # grid 3x3，能耗 switch:link = 3:1（比照 grid_31），k_short 系列同 data/grid_3x3
+        'link_bw':         'data/grid_3x3_31/link_bw.txt',
+        'link_energy':     'data/grid_3x3_31/link_energy.txt',
+        'switch_energy':   'data/grid_3x3_31/switch_energy.txt',
+        'k_short':         'data/grid_3x3_31/k_short.txt',
+        'k_short_dist':    'data/grid_3x3_31/k_short_dist.txt',
+        'base_weight_map': 'data/grid_3x3_31/base_weight_map.txt',
+    },
     'grid_4x4_31': {   # grid 4x4，能耗 switch:link = 3:1（比照 grid_31），k_short 系列同 data/grid_4x4
         'link_bw':         'data/grid_4x4_31/link_bw.txt',
         'link_energy':     'data/grid_4x4_31/link_energy.txt',
